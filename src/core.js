@@ -156,7 +156,12 @@
   function prepare(raw) {
     const cfg = withDefaults(raw.config);
     // les rapports coach importés depuis la page (synchro Drive, import manuel) passent par le même filtre que le build
-    if (window.SDParsers && window.SDParsers.setPrivacyTerms) window.SDParsers.setPrivacyTerms(cfg.privacy && cfg.privacy.hideTerms);
+    if (window.SDParsers && window.SDParsers.setPrivacyTerms) {
+      const pv = cfg.privacy || {};
+      let terms = pv.hideTerms || [];
+      if (pv.hideTermsB64) { try { terms = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(pv.hideTermsB64), (c) => c.charCodeAt(0)))); } catch (e) { terms = []; } }
+      window.SDParsers.setPrivacyTerms(terms);
+    }
     const from = raw.coverage.from, to = raw.coverage.to;
     const src = new Map(raw.days.map((x) => [x.d, x]));
     const days = [];

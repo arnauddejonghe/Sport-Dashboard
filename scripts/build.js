@@ -65,6 +65,10 @@ function main() {
     }
   }
   const data = P.mergeParsed(parts, config);
+  // la page a besoin des termes privés pour filtrer les rapports coach synchronisés depuis Drive,
+  // mais ils ne sont pas écrits en clair dans son code source
+  const pv = data.config && data.config.privacy;
+  if (pv && Array.isArray(pv.hideTerms)) data.config.privacy = { hideTermsB64: Buffer.from(JSON.stringify(pv.hideTerms), 'utf8').toString('base64') };
   const json = JSON.stringify(data);
   fs.writeFileSync(OUT_DATA, `/* Généré par scripts/build.js — données personnelles, ne pas committer */\nwindow.SD_DATA = ${json};\n`);
   console.log(`→ ${path.relative(ROOT, OUT_DATA)}  (${(json.length / 1024).toFixed(0)} Ko, ${data.days.length} jours ${data.coverage.from} → ${data.coverage.to})`);
