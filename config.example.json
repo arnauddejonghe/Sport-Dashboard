@@ -28,6 +28,10 @@
     "Lying Hamstring Curl"
   ],
   "deadline": { "date": "2026-12-31", "label": "objectif" },
+  "drive": { "folder": "Suivi sportif" },
+  "painSites": ["Genou", "Lombaires"],
+  "journalTags": ["Créatine prise", "Entraînement à jeun"],
+  "privacy": { "hideTerms": [] },
   "phases": [
     { "name": "Exemple de phase perso", "start": "2026-01-01", "end": "2026-01-31" }
   ]

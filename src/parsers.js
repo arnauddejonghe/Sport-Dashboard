@@ -119,32 +119,49 @@
     'steps (steps)': ['steps', 'num'],
     'active calories (kcal)': ['activeKcal', 'num'],
     'resting calories (kcal)': ['restKcal', 'num'],
-    'exercise minutes': ['exMin', 'num'],
+    'exercise minutes': ['exMin', 'minutes'],
     'stand hours (hr)': ['standH', 'num'],
+    'stand minutes (min)': ['standMin', 'num'],
     'flights climbed (floors)': ['flights', 'num'],
     'walking + running (km)': ['distKm', 'num'],
     'cycling distance (km)': ['cycleKm', 'num'],
     'sleep': ['sleepMin', 'dur'],
     'heart rate variability (ms)': ['hrv', 'range'],
     'resting heart rate (bpm)': ['rhr', 'range'],
+    'heart rate (bpm)': ['hr', 'range'],
     'cardio fitness (ml/min·kg)': ['vo2', 'rangeMid'],
     'walking heart rate (bpm)': ['walkHR', 'rangeMid'],
     'respiratory rate (br/min)': ['resp', 'rangeMid'],
-    'blood oxygen (%)': ['spo2', 'rangeLo'],
+    'blood oxygen (%)': ['spo2', 'rangeMid'],
     'walking asymmetry (%)': ['walkAsym', 'rangeMid'],
-    'walking speed (km/hr)': ['walkSpeed', 'rangeHi'],
+    'walking speed (km/hr)': ['walkSpeed', 'rangeMid'],
+    'step length (cm)': ['stepLen', 'rangeMid'],
+    'double support time (%)': ['dblSupport', 'rangeMid'],
+    'stair speed: up (m/s)': ['stairUp', 'rangeMid'],
+    'stair speed: down (m/s)': ['stairDown', 'rangeMid'],
+    'six-minute walk (m)': ['sixMin', 'num'],
     'weight (kg)': ['weight', 'range'],
     'body fat (%)': ['bodyFat', 'rangeMid'],
     'lean body mass (kg)': ['lean', 'rangeMid'],
+    'body mass index': ['bmi', 'rangeMid'],
     'waist circumference (cm)': ['waist', 'rangeMid'],
     'calories (kcal)': ['kcal', 'num'],
     'protein (g)': ['prot', 'num'],
     'carbohydrates (g)': ['carb', 'num'],
     'total fat (g)': ['fat', 'num'],
     'fiber (g)': ['fiber', 'num'],
+    'dietary sugar (g)': ['sugar', 'num'],
+    'sodium (mg)': ['sodium', 'num'],
     'water (ml)': ['water', 'num'],
     'caffeine (mg)': ['caffeine', 'num'],
-    'mindful minutes': ['mindful', 'num'],
+    'mindful minutes': ['mindful', 'minutes'],
+    'state of mind': ['mood', 'mood'],
+  };
+
+  // Apple « State of Mind » : valence de −3 (très désagréable) à +3 (très agréable)
+  const MOOD = {
+    'very unpleasant': -3, 'unpleasant': -2, 'slightly unpleasant': -1, 'neutral': 0,
+    'slightly pleasant': 1, 'pleasant': 2, 'very pleasant': 3,
   };
 
   const normHeader = (h) => String(h).replace(/"/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -179,6 +196,12 @@
         let v = null;
         if (type === 'num') v = num(raw);
         else if (type === 'dur') v = duration(raw);
+        // « 85 » (Health Export) ou « 1h 25m » (export Apple Santé du raccourci)
+        else if (type === 'minutes') v = /[hms]/i.test(raw) ? duration(raw) : num(raw);
+        else if (type === 'mood') {
+          const vals = String(raw).split(/[,;]/).map((x) => MOOD[x.trim().toLowerCase()]).filter((x) => x != null);
+          v = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        }
         else {
           const rg = range(raw);
           if (!rg) continue;
@@ -214,8 +237,8 @@
     if (m) return `${m[1]}T${m[2]}:${m[3]}:${m[4]}`;
     m = String(name).match(/(\d{4}-\d{2}-\d{2})T(\d{2})[:_-](\d{2})[:_-](\d{2})/);
     if (m) return `${m[1]}T${m[2]}:${m[3]}:${m[4]}`;
-    m = String(name).match(/(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/); // MacroFactor-20260924104745
-    if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
+    m = String(name).match(/(?:^|\D)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\D|$)/); // MacroFactor-20260924104745
+    if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31 && +m[4] < 24) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
     m = String(name).match(/(\d{4}-\d{2}-\d{2})/);
     return m ? `${m[1]}T00:00:00` : null;
   }
@@ -233,6 +256,92 @@
       if (d && t) notes.push({ d, src: 'journal', text: t });
     }
     return { kind: 'notes', fileName, notes };
+  }
+
+  // ---------------------------------------------------------------- Rapports du coach (.md)
+
+  // Le dashboard ne reprend que le verdict, les scores et les points forts / faibles du rapport. Toute phrase qui
+  // contient un terme médical, ou un terme de la configuration privée (privacy.hideTerms, hors git), est retirée.
+  const MEDICAL = /(m[ée]dicament|traitement|ordonnance|posologie|prescri|injection|\bdoses?\b|hormon|pharmac|m[ée]decin)/i;
+  let hideRe = null;
+  /** Termes supplémentaires à masquer (expressions régulières, insensibles à la casse), lus dans la config privée. */
+  function setPrivacyTerms(terms) {
+    const list = (Array.isArray(terms) ? terms : []).map((t) => String(t).trim()).filter(Boolean);
+    try { hideRe = list.length ? new RegExp('(' + list.join('|') + ')', 'i') : null; } catch (e) { hideRe = null; }
+  }
+  const cleanSensitive = (t) => String(t || '')
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !MEDICAL.test(sentence) && !(hideRe && hideRe.test(sentence)))
+    .join(' ')
+    .trim();
+
+  /** "2026-09-24_coach_v3.md" -> {d, rank} ; le rapport final (sans suffixe) l'emporte sur les versions. */
+  function coachFileInfo(name) {
+    const m = String(name || '').match(/(\d{4}-\d{2}-\d{2})_coach(?:_v(\d+))?/i);
+    if (!m) return null;
+    return { d: m[1], rank: m[2] ? +m[2] : 100 };
+  }
+
+  function parseCoachMD(text, fileName) {
+    const info = coachFileInfo(fileName) || {};
+    let d = info.d || null;
+    if (!d) {
+      const m = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      if (m) d = `${m[3]}-${m[2]}-${m[1]}`;
+    }
+    if (!d) throw new Error(`${fileName} : date du rapport introuvable`);
+    const lines = text.split(/\r?\n/);
+    const verdictLine = lines.find((l) => /^\s*VERDICT\s*:/i.test(l));
+    const scoreLine = lines.find((l) => /pr[ée]paration\s+\d+/i.test(l) && /global\s+\d+/i.test(l));
+    const scores = {};
+    if (scoreLine) {
+      const g = (re) => { const m = scoreLine.match(re); return m ? +m[1] : null; };
+      scores.preparation = g(/pr[ée]paration\s+(\d+)/i);
+      scores.momentum = g(/momentum\s+(\d+)/i);
+      scores.global = g(/global\s+(\d+)/i);
+    }
+    const section = (title) => {
+      const i = lines.findIndex((l) => l.trim().toUpperCase().startsWith(title));
+      if (i < 0) return [];
+      const out = [];
+      for (let j = i + 1; j < lines.length; j++) {
+        const l = lines[j].trim();
+        if (!l) { if (out.length) break; continue; }
+        if (/^[A-ZÉÈÀÂÎÔÛÇ' ]{6,}$/.test(l)) break;
+        out.push(l.replace(/^[-•]\s*/, ''));
+      }
+      return out.map(cleanSensitive).filter(Boolean);
+    };
+    const entry = {
+      d, rank: info.rank || 100,
+      verdict: cleanSensitive(verdictLine ? verdictLine.replace(/^\s*VERDICT\s*:\s*/i, '') : ''),
+      scores,
+      good: section('CE QUI FONCTIONNE BIEN').slice(0, 4),
+      bad: section('CE QUI NE FONCTIONNE PAS').slice(0, 4),
+    };
+    return { kind: 'coach', fileName, exportedAt: exportDateFromName(fileName), entries: [entry] };
+  }
+
+  // ---------------------------------------------------------------- Bilans sanguins (CSV)
+
+  /** CSV « Date,Marqueur,Valeur,Unité,Min,Max » (séparateur , ou ;) */
+  function parseLabsCSV(text, fileName) {
+    const sep = (text.split(/\r?\n/)[0].match(/;/g) || []).length > (text.split(/\r?\n/)[0].match(/,/g) || []).length ? ';' : ',';
+    const rows = sep === ';' ? parseCSV(text.replace(/;/g, ',')) : parseCSV(text);
+    const hdr = rows[0].map(normHeader);
+    const col = (...names) => hdr.findIndex((h) => names.some((n) => h.startsWith(n)));
+    const iD = col('date'), iN = col('marqueur', 'biomarqueur', 'marker', 'analyte', 'paramètre', 'parametre');
+    const iV = col('valeur', 'value', 'résultat', 'resultat'), iU = col('unité', 'unite', 'unit');
+    const iLo = col('min', 'réf min', 'ref min', 'low'), iHi = col('max', 'réf max', 'ref max', 'high');
+    const labs = [];
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      const d = toISODate(row[iD]);
+      const v = num(row[iV]);
+      if (!d || !row[iN] || v == null) continue;
+      labs.push({ d, name: String(row[iN]).trim(), value: v, unit: iU >= 0 ? String(row[iU] || '').trim() : '', lo: iLo >= 0 ? num(row[iLo]) : null, hi: iHi >= 0 ? num(row[iHi]) : null });
+    }
+    return { kind: 'labs', fileName, labs };
   }
 
   // ---------------------------------------------------------------- MacroFactor (.xlsx)
@@ -453,6 +562,7 @@
         firstName: String(get(/^Name/i) || '').split(' ')[0] || null,
         heightCm: get(/^Height/i),
         birthYear: bd ? +bd.slice(0, 4) : null,
+        birthDate: bd || null,
         sex: get(/^Sex/i),
       };
     }
@@ -528,12 +638,14 @@
    */
   function parseFile(file, XLSX) {
     const name = file.name || '';
+    if (/\.md$/i.test(name) || (typeof file.text === 'string' && /^\s*RAPPORT COACH/i.test(file.text))) return parseCoachMD(file.text, name);
     if (/\.csv$/i.test(name) || typeof file.text === 'string') {
-      const text = file.text;
-      const head = text.slice(0, 400).toLowerCase();
-      if (/^﻿?date,\s*"?notes/.test(head)) return parseNotesCSV(text, name);
-      if (head.startsWith('date,') || head.startsWith('﻿date,')) return parseHealthCSV(text, name);
-      throw new Error(`${name} : CSV non reconnu (attendu : export Health Export ou Date,Notes)`);
+      const text = file.text.replace(/^﻿/, '');
+      const first = text.split(/\r?\n/)[0].toLowerCase();
+      if (/(marqueur|marker|analyte|param[eè]tre)/.test(first) && /(valeur|value|r[ée]sultat)/.test(first)) return parseLabsCSV(text, name);
+      if (/^"?date"?\s*[,;]\s*"?notes?"?/.test(first)) return parseNotesCSV(text, name);
+      if (first.startsWith('date,') || first.startsWith('"date"')) return parseHealthCSV(text, name);
+      throw new Error(`${name} : CSV non reconnu (attendu : Health Export, journal Date,Notes ou bilan Date,Marqueur,Valeur)`);
     }
     if (!XLSX) throw new Error('Bibliothèque XLSX indisponible');
     const wb = XLSX.read(file.buffer, { type: 'array', cellDates: false });
@@ -588,11 +700,13 @@
     }
     const healthDates = Object.keys(healthOwner).sort();
 
-    // 2) MacroFactor
+    // 2) MacroFactor : plusieurs exports possibles (complet, partiel). Du plus ancien au plus récent,
+    //    chaque export remplace les dates qu'il couvre ; les feuilles absentes d'un export partiel ne vident rien.
     const mfParts = byKind('macrofactor');
-    const mf = mfParts[mfParts.length - 1];
     let targets = [], muscles = [], exercises = [], body = [], phases = [], notes = [], profile = null;
-    if (mf) {
+    const span = (arr) => (arr.length ? [arr.reduce((m, x) => (x.d < m ? x.d : m), arr[0].d), arr.reduce((m, x) => (x.d > m ? x.d : m), arr[0].d)] : null);
+    const outside = (r) => (x) => !r || x.d < r[0] || x.d > r[1];
+    for (const mf of mfParts) {
       for (const [d, v] of Object.entries(mf.days)) {
         const day = D(d);
         if (v.weight != null) { day.weight = v.weight; delete day.weightLo; delete day.weightHi; day.weightSrc = 'MF'; }
@@ -600,13 +714,19 @@
         if (v.trend != null) day.trend = v.trend;
         if (v.tdee != null) day.tdee = v.tdee;
         if (v.kcal != null) {
-          for (const k of ['kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar']) if (v[k] != null) day[k] = v[k];
+          for (const k of ['kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine']) if (v[k] != null) day[k] = v[k];
           day.nutriSrc = 'MF';
         }
         if (day.steps == null && v.mfSteps != null) day.steps = v.mfSteps;
       }
-      targets = mf.targets; muscles = mf.muscles; exercises = mf.exercises.slice();
-      body = mf.body; phases = mf.phases.slice(); notes = mf.notes.slice(); profile = mf.profile;
+      if (mf.exercises.length) { const r = span(mf.exercises); exercises = exercises.filter(outside(r)).concat(mf.exercises); }
+      if (mf.muscles.length) { const r = span(mf.muscles); muscles = muscles.filter(outside(r)).concat(mf.muscles); }
+      if (mf.targets.length) targets = mf.targets;
+      if (mf.body.length) body = mf.body;
+      if (mf.phases.length) phases = mf.phases.slice();
+      const seenN = new Set(notes.map((n) => n.d + '|' + n.text));
+      for (const n of mf.notes) if (!seenN.has(n.d + '|' + n.text)) notes.push(n);
+      if (mf.profile) profile = mf.profile;
     }
 
     // 3) TrainAI
@@ -617,8 +737,24 @@
       for (const s of p.sessions) sessions.push(s);
     }
 
-    // 4) Journal libre
-    for (const p of parts.filter((x) => x.kind === 'notes')) notes.push(...p.notes);
+    // 4) Journal libre, rapports du coach, bilans sanguins
+    for (const p of parts.filter((x) => x.kind === 'notes')) {
+      const seenN = new Set(notes.map((n) => n.d + '|' + n.text));
+      for (const n of p.notes) if (!seenN.has(n.d + '|' + n.text)) notes.push(n);
+    }
+    const coachByDay = {};
+    for (const p of parts.filter((x) => x.kind === 'coach')) {
+      for (const e of p.entries) {
+        const cur = coachByDay[e.d];
+        const key = [e.rank, p.exportedAt || ''];
+        if (!cur || key[0] > cur._k[0] || (key[0] === cur._k[0] && key[1] > cur._k[1])) coachByDay[e.d] = Object.assign({ _k: key }, e);
+      }
+    }
+    const coach = Object.values(coachByDay).map((e) => { const o = Object.assign({}, e); delete o._k; return o; }).sort((a, b) => a.d.localeCompare(b.d));
+    const labKey = (l) => l.d + '|' + l.name.toLowerCase();
+    const labMap = new Map();
+    for (const p of parts.filter((x) => x.kind === 'labs')) for (const l of p.labs) labMap.set(labKey(l), l);
+    const labs = [...labMap.values()].sort((a, b) => a.d.localeCompare(b.d) || a.name.localeCompare(b.name));
 
     // 5) Séances : Apple Santé (source de vérité pour la durée), sinon TrainAI, sinon log MacroFactor
     const workouts = [];
@@ -696,9 +832,10 @@
     const sources = parts.map((p) => {
       let from = null, to = null, n = 0;
       const ds = p.kind === 'health' ? Object.keys(p.days) : p.kind === 'macrofactor' ? Object.keys(p.days)
-        : p.kind === 'trainai' ? p.sessions.map((s) => s.d) : (p.notes || []).map((n) => n.d);
+        : p.kind === 'trainai' ? p.sessions.map((s) => s.d) : p.kind === 'coach' ? p.entries.map((e) => e.d)
+        : p.kind === 'labs' ? p.labs.map((l) => l.d) : (p.notes || []).map((n) => n.d);
       for (const d of ds) { if (!from || d < from) from = d; if (!to || d > to) to = d; n++; }
-      return { kind: p.kind, fileName: p.fileName, exportedAt: p.exportedAt, from, to, n };
+      return { kind: p.kind, fileName: p.fileName, exportedAt: p.exportedAt || null, from, to, n, driveId: p.driveId, modifiedTime: p.modifiedTime };
     });
 
     return {
@@ -721,6 +858,8 @@
       body: body.sort((a, b) => a.d.localeCompare(b.d)),
       phases: phases.sort((a, b) => a.start.localeCompare(b.start)),
       notes: notes.sort((a, b) => a.d.localeCompare(b.d)),
+      coach,
+      labs,
       sessionStarts,
     };
   }
@@ -729,6 +868,17 @@
    * Superpose un jeu de données fraîchement importé (mergeParsed) sur le jeu existant.
    * Les dates couvertes par le nouvel import sont remplacées ; le reste de l'historique est conservé.
    */
+  function mergeCoach(a, b) {
+    const m = new Map(a.map((e) => [e.d, e]));
+    for (const e of b) { const cur = m.get(e.d); if (!cur || (e.rank || 0) >= (cur.rank || 0)) m.set(e.d, e); }
+    return [...m.values()].sort((x, y) => x.d.localeCompare(y.d));
+  }
+  function mergeLabs(a, b) {
+    const m = new Map(a.map((l) => [l.d + '|' + l.name.toLowerCase(), l]));
+    for (const l of b) m.set(l.d + '|' + l.name.toLowerCase(), l);
+    return [...m.values()].sort((x, y) => x.d.localeCompare(y.d) || x.name.localeCompare(y.name));
+  }
+
   function overlayDataset(base, add) {
     if (!base) return add;
     const kinds = new Set(add.sources.map((s) => s.kind));
@@ -741,7 +891,7 @@
     const hR = covered('health'), mR = covered('macrofactor'), tR = covered('trainai');
 
     const byDate = new Map(base.days.map((x) => [x.d, Object.assign({}, x)]));
-    const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'nutriSrc'];
+    const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'nutriSrc'];
     for (const n of add.days) {
       const old = byDate.get(n.d) || { d: n.d };
       let merged;
@@ -782,12 +932,15 @@
       body: kinds.has('macrofactor') ? add.body : base.body,
       phases: kinds.has('macrofactor') ? add.phases.concat(base.phases.filter((p) => p.src === 'config')) : base.phases,
       notes: Array.from(notes.values()).sort((a, b) => a.d.localeCompare(b.d)),
+      coach: mergeCoach(base.coach || [], add.coach || []),
+      labs: mergeLabs(base.labs || [], add.labs || []),
       sessionStarts: tR ? base.sessionStarts.filter((s) => !inR(s.d, tR)).concat(add.sessionStarts) : base.sessionStarts,
     });
   }
 
   return {
-    parseCSV, parseHealthCSV, parseNotesCSV, parseMacroFactor, parseTrainAI, parseFile, mergeParsed, overlayDataset,
+    parseCSV, parseHealthCSV, parseNotesCSV, parseCoachMD, parseLabsCSV, parseMacroFactor, parseTrainAI, parseFile, mergeParsed, overlayDataset,
+    coachFileInfo, cleanSensitive, setPrivacyTerms,
     isMacroFactor, isTrainAI, exportDateFromName,
     _internal: { num, range, duration, toISODate, epley },
   };

@@ -37,16 +37,18 @@ function main() {
     console.error(`Dossier introuvable : ${path.relative(ROOT, RAW)} — dépose-y tes exports puis relance.`);
     process.exit(1);
   }
-  const files = fs.readdirSync(RAW).filter((f) => /\.(csv|xlsx)$/i.test(f) && !f.startsWith('~$')).sort();
+  const files = fs.readdirSync(RAW).filter((f) => /\.(csv|xlsx|md)$/i.test(f) && !f.startsWith('~$')).sort();
   if (!files.length) {
-    console.error('Aucun export .csv/.xlsx dans data/raw/.');
+    console.error('Aucun export .csv/.xlsx/.md dans data/raw/.');
     process.exit(1);
   }
+  const config = readConfig();
+  P.setPrivacyTerms((config.privacy || {}).hideTerms);
   const parts = [];
   for (const f of files) {
     const full = path.join(RAW, f);
     try {
-      const file = /\.csv$/i.test(f)
+      const file = /\.(csv|md)$/i.test(f)
         ? { name: f, text: fs.readFileSync(full, 'utf8') }
         : { name: f, buffer: fs.readFileSync(full) };
       const p = P.parseFile(file, XLSX);
@@ -54,13 +56,15 @@ function main() {
       const n = p.kind === 'health' ? `${Object.keys(p.days).length} jours, ${p.workouts.length} séances`
         : p.kind === 'macrofactor' ? `${Object.keys(p.days).length} jours, ${p.exercises.length} lignes exercice`
         : p.kind === 'trainai' ? `${p.sessions.length} séances, ${p.exercises.length} lignes exercice`
-        : `${p.notes.length} notes`;
+        : p.kind === 'coach' ? `rapport du ${p.entries[0].d}`
+        : p.kind === 'labs' ? `${p.labs.length} résultats`
+        : `${(p.notes || []).length} notes`;
       console.log(`✓ ${p.kind.padEnd(11)} ${f}  (${n})`);
     } catch (e) {
       console.warn(`✗ ignoré : ${f} — ${e.message}`);
     }
   }
-  const data = P.mergeParsed(parts, readConfig());
+  const data = P.mergeParsed(parts, config);
   const json = JSON.stringify(data);
   fs.writeFileSync(OUT_DATA, `/* Généré par scripts/build.js — données personnelles, ne pas committer */\nwindow.SD_DATA = ${json};\n`);
   console.log(`→ ${path.relative(ROOT, OUT_DATA)}  (${(json.length / 1024).toFixed(0)} Ko, ${data.days.length} jours ${data.coverage.from} → ${data.coverage.to})`);
@@ -72,8 +76,9 @@ function main() {
   let single = html
     .replace(/<link rel="stylesheet" href="src\/styles\.css">/, () => `<style>\n${fs.readFileSync(path.join(ROOT, 'src/styles.css'), 'utf8')}\n</style>`)
     .replace(/<script src="data\/dashboard-data\.js"><\/script>/, () => `<script>window.SD_DATA = ${json.replace(/<\//g, '<\\/')};</script>`)
-    .replace(/<script src="(src\/[\w.-]+\.js)"><\/script>/g, (_, rel) => `<script>\n${inline(rel)}\n</script>`)
-    .replace(/<script>window\.echarts\|\|document\.write[^\n]*<\/script>\n?/, '');
+    .replace(/<script src="(src\/[\w\/.-]+\.js)"><\/script>/g, (_, rel) => `<script>\n${inline(rel)}\n</script>`)
+    // le secours local (node_modules) n'existe pas hors du dépôt ; le secours cdnjs reste
+    .replace(/<script>window\.echarts\|\|document\.write\('<script src="node_modules[^\n]*<\/script>\n?/, '');
   fs.writeFileSync(path.join(DIST, 'sport-dashboard.html'), single);
 
   // Variante Artifact : contenu du <head> (hors meta) + contenu du <body>

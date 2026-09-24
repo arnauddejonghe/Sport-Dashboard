@@ -1,9 +1,10 @@
-/* Salle des Machines — noyau : utilitaires, modèle, filtres, helpers de graphiques, insights. */
+/* Salle des Machines — noyau : utilitaires, modèle, filtres, moteur de graphiques. */
 (function () {
   'use strict';
 
   const SD = (window.SD = window.SD || {});
   const FONT = '"Barlow", system-ui, -apple-system, "Segoe UI", sans-serif';
+  const FONT_C = '"Barlow Condensed", "Barlow", system-ui, sans-serif';
 
   // ================================================================ dates
   const DAY = 864e5;
@@ -25,6 +26,7 @@
   const fdS = (d) => fdate(d, { day: 'numeric', month: 'short' });
   const fdM = (d) => fdate(d, { day: 'numeric', month: 'short', year: 'numeric' });
   const fdL = (d) => fdate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const fdW = (d) => fdate(d, { weekday: 'short', day: 'numeric', month: 'short' });
 
   // ================================================================ stats & format
   const isNum = (v) => typeof v === 'number' && isFinite(v);
@@ -64,16 +66,17 @@
   const fH = (h) => (isNum(h) ? fHM(h * 60) : '—');
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  // ================================================================ thème (lu depuis les tokens CSS)
+  // ================================================================ thème (tokens CSS)
   let T = {};
   function readTheme() {
     const cs = getComputedStyle(document.documentElement);
     const g = (n) => cs.getPropertyValue('--' + n).trim();
     T = {
-      page: g('page'), surface: g('surface'), surface2: g('surface-2'), ink: g('ink'), ink2: g('ink-2'), muted: g('muted'),
-      grid: g('grid'), axis: g('axis'), border: g('border-strong'), focus: g('focus'),
+      bg: g('bg'), card: g('card'), card2: g('card-2'), ink: g('ink'), ink2: g('ink-2'), muted: g('muted'),
+      grid: g('grid'), axis: g('axis'), line: g('line-2'),
       s: ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'].map(g), other: g('s-other'),
-      good: g('good'), warn: g('warn'), serious: g('serious'), crit: g('crit'),
+      good: g('good'), warn: g('warn'), crit: g('crit'),
+      rec: g('rec'), strain: g('strain'), sleep: g('sleep'), nutri: g('nutri'), act: g('act'), body: g('body'), age: g('age'),
       divNeg: g('div-neg'), divMid: g('div-mid'), divPos: g('div-pos'),
       seq: [0, 1, 2, 3, 4, 5].map((i) => g('seq-' + i)),
       phase: { cut: g('phase-cut'), gain: g('phase-gain'), hold: g('phase-hold'), custom: g('phase-custom') },
@@ -81,6 +84,10 @@
     SD.T = T;
     return T;
   }
+  const zoneColor = (z) => ({ green: T.good, yellow: T.warn, red: T.crit, good: T.good, ok: T.ink2, warn: T.warn, crit: T.crit }[z] || T.muted);
+  const recColor = (v) => (!isNum(v) ? T.muted : v >= 67 ? T.good : v >= 34 ? T.warn : T.crit);
+  const scoreColor = (v) => (!isNum(v) ? T.muted : v >= 75 ? T.good : v >= 55 ? T.warn : T.crit);
+  const pillarColor = (k) => ({ recovery: T.rec, sleep: T.sleep, training: T.strain, nutrition: T.nutri, activity: T.act, body: T.body }[k] || T.s[0]);
 
   // ================================================================ config
   const DEFAULT_CFG = {
@@ -93,6 +100,9 @@
     },
     keyExercises: [],
     deadline: null,
+    drive: { folder: 'Suivi sportif' },
+    journalTags: [],
+    privacy: { hideTerms: [] },
   };
   function withDefaults(cfg) {
     const out = JSON.parse(JSON.stringify(DEFAULT_CFG));
@@ -145,6 +155,8 @@
   // ================================================================ modèle
   function prepare(raw) {
     const cfg = withDefaults(raw.config);
+    // les rapports coach importés depuis la page (synchro Drive, import manuel) passent par le même filtre que le build
+    if (window.SDParsers && window.SDParsers.setPrivacyTerms) window.SDParsers.setPrivacyTerms(cfg.privacy && cfg.privacy.hideTerms);
     const from = raw.coverage.from, to = raw.coverage.to;
     const src = new Map(raw.days.map((x) => [x.d, x]));
     const days = [];
@@ -200,7 +212,7 @@
       for (let d = s; d <= p.end && d <= to; d = addD(d, 1)) { const x = at(d); if (x) x.phase = p.name; }
     }
 
-    // Moyennes glissantes 7 j (jours complets uniquement, au moins 4 valeurs)
+    // Moyennes glissantes 7 j (jours complets, au moins 4 valeurs)
     const roll = (key, out, win = 7, minN = 4) => {
       for (let i = 0; i < days.length; i++) {
         const a = [];
@@ -210,28 +222,12 @@
     };
     roll('sleepH', 'sleep7'); roll('hrv', 'hrv7'); roll('rhr', 'rhr7'); roll('steps', 'steps7');
 
-    // Score de récupération (0-100) : moyenne de 2 ou 3 composantes disponibles
-    //  sommeil / cible ; rang de la HRV sur les 60 j précédents ; rang inverse de la FC repos sur 60 j.
-    for (let i = 0; i < days.length; i++) {
-      const x = days[i];
-      if (x.partial) continue;
-      const comps = {};
-      if (isNum(x.sleepH)) comps.sleep = Math.min(100, (x.sleepH / cfg.targets.sleepHours) * 100);
-      const win = days.slice(Math.max(0, i - 60), i);
-      const hw = pluck(win, (y) => y.hrv), rw = pluck(win, (y) => y.rhr);
-      if (isNum(x.hrv) && hw.length >= 14) comps.hrv = 100 * pctRank(x.hrv, hw);
-      if (isNum(x.rhr) && rw.length >= 14) comps.rhr = 100 * (1 - pctRank(x.rhr, rw));
-      const v = Object.values(comps);
-      if (v.length >= 2) { x.rec = mean(v); x.recC = comps; }
-    }
-
     // Variation de poids tendance sur 7 j
     for (let i = 7; i < days.length; i++) {
       const a = days[i - 7].trendW, b = days[i].trendW;
       if (isNum(a) && isNum(b)) days[i].trendD7 = b - a;
     }
 
-    // Exercices : index par nom + source
     const exIndex = new Map();
     for (const e of raw.exercises) {
       const k = e.n + '|' + e.s;
@@ -240,28 +236,35 @@
       exIndex.set(k, o);
     }
 
+    const coach = new Map((raw.coach || []).map((c) => [c.d, c]));
     const partialDays = days.filter((x) => x.partial).map((x) => x.d);
     const lastComplete = [...days].reverse().find((x) => !x.partial && isNum(x.steps));
-    return {
-      raw, cfg, days, idx, at, phases, exIndex,
+    const M = {
+      raw, cfg, days, idx, at, phases, exIndex, coach,
       first: from, last: to, lastComplete: lastComplete ? lastComplete.d : to, partialDays,
     };
+    SD.M = M;
+    if (SD.scores) SD.scores.enrich(M);
+    return M;
   }
 
   // ================================================================ état
   const PRESETS = [['7j', '7 j', 7], ['30j', '30 j', 30], ['90j', '90 j', 90], ['6m', '6 mois', 183], ['12m', '12 mois', 365], ['ytd', 'Année', null], ['all', 'Tout', null]];
   const DEFAULT_STATE = {
-    page: 'overview', preset: '6m', from: null, to: null, wds: [0, 1, 2, 3, 4, 5, 6], dayKind: 'all', types: null, gran: 'auto',
-    ex: null, exMetric: 'e1', corrX: 'sleepH', corrY: 'hrv', corrLag: 0, measure: 'Tour de taille', macroView: 'g',
-    partialKcal: null, calMetric: 'actMin',
+    page: 'today', preset: '90j', from: null, to: null, day: null, wds: [0, 1, 2, 3, 4, 5, 6], dayKind: 'all', types: null, gran: 'auto',
+    ex: null, exMetric: 'e1', corrX: 'sleepH', corrY: 'rec', corrLag: 0, measure: 'Tour de taille', macroView: 'g',
+    partialKcal: null, calMetric: 'score', analysis: { ma7: true, ma28: false, trend: false, band: true, minmax: false }, filtersOpen: false,
   };
-  const S = (SD.S = Object.assign({}, DEFAULT_STATE));
-  const STORE_KEY = 'sdm-state-v1';
+  const S = (SD.S = JSON.parse(JSON.stringify(DEFAULT_STATE)));
+  const STORE_KEY = 'sdm-state-v2';
   function loadState() {
     try {
       const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
-      if (saved && typeof saved === 'object') Object.assign(S, saved);
-    } catch (e) { /* stockage indisponible : on garde les valeurs par défaut */ }
+      if (saved && typeof saved === 'object') {
+        Object.assign(S, saved);
+        S.analysis = Object.assign({}, DEFAULT_STATE.analysis, saved.analysis || {});
+      }
+    } catch (e) { /* stockage indisponible : valeurs par défaut */ }
   }
   function saveState() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { /* ignoré */ }
@@ -271,7 +274,7 @@
     if (p === 'all') return [M.first, to];
     if (p === 'ytd') return [to.slice(0, 4) + '-01-01' < M.first ? M.first : to.slice(0, 4) + '-01-01', to];
     const pr = PRESETS.find((x) => x[0] === p);
-    const n = pr && pr[2] ? pr[2] : 183;
+    const n = pr && pr[2] ? pr[2] : 90;
     const f = addD(to, -(n - 1));
     return [f < M.first ? M.first : f, to];
   }
@@ -285,6 +288,10 @@
     S.from = from < M.first ? M.first : from > M.last ? M.last : from;
     S.to = to > M.last ? M.last : to < M.first ? M.first : to;
     S.preset = 'custom';
+  }
+  function setDay(d) {
+    const M = SD.M;
+    S.day = d < M.first ? M.first : d > M.last ? M.last : d;
   }
   const partialKcal = () => (isNum(S.partialKcal) ? S.partialKcal : SD.M.cfg.targets.partialLogKcal);
   const logged = (x) => isNum(x.kcal) && x.kcal >= partialKcal() && !x.partial;
@@ -304,13 +311,15 @@
     const prev = M.days.filter((x) => x.d >= pFrom && x.d <= pTo && dOk(x));
     const wk = (arr) => { const o = []; for (const x of arr) for (const w of x.w) if (tOk(w)) o.push(w); return o; };
     const dates = new Set(days.map((x) => x.d));
+    const pdates = new Set(prev.map((x) => x.d));
     F = SD.F = {
       days, prev, len, pFrom, pTo, dates, hasPrev: pFrom >= M.first,
       full: days.filter((x) => !x.partial), prevFull: prev.filter((x) => !x.partial),
       workouts: wk(days), prevWorkouts: wk(prev),
       exercises: M.raw.exercises.filter((e) => dates.has(e.d)),
-      prevExercises: M.raw.exercises.filter((e) => e.d >= pFrom && e.d <= pTo),
+      prevExercises: M.raw.exercises.filter((e) => pdates.has(e.d)),
       muscles: M.raw.muscles.filter((m) => dates.has(m.d)),
+      prevMuscles: M.raw.muscles.filter((m) => pdates.has(m.d)),
       notes: M.raw.notes.filter((n) => n.d >= S.from && n.d <= S.to),
       body: M.raw.body.filter((b) => b.d >= S.from && b.d <= S.to),
       strengthDays: new Set(wk(days).filter((w) => STRENGTH.has(w.type)).map((w) => w.d)),
@@ -335,7 +344,6 @@
   const bucketTitle = (k, g) => (g === 'day' ? fdL(k) : g === 'week' ? `Semaine du ${fdM(k)}` : fdate(k, { month: 'long', year: 'numeric' }));
   const granUnit = (g) => (g === 'day' ? 'jour' : g === 'week' ? 'semaine' : 'mois');
 
-  /** Agrège des éléments datés par période. how : mean | sum | count */
   function agg(items, dateOf, valOf, how, g) {
     const keys = bucketKeys(g), b = bucketOf(g);
     const map = new Map(keys.map((k) => [k, []]));
@@ -351,14 +359,24 @@
     });
   }
 
-  // ================================================================ graphiques
+  // ================================================================ moteur de graphiques
   const charts = new Map();
   const tables = new Map();
+  let ro = null;
+  function observe(el) {
+    if (!('ResizeObserver' in window)) return;
+    if (!ro) ro = new ResizeObserver((entries) => { for (const e of entries) { const c = window.echarts && echarts.getInstanceByDom(e.target); if (c) c.resize(); } });
+    ro.observe(el);
+  }
   function chart(id, opt, tableFn) {
     const el = document.getElementById(id);
-    if (!el || !window.echarts) return null;
+    if (!el) return null;
+    if (!window.echarts) {
+      el.innerHTML = '<div class="empty">Graphique indisponible : la bibliothèque de graphiques n’a pas pu être chargée (connexion ?). Recharge la page.</div>';
+      return null;
+    }
     let c = echarts.getInstanceByDom(el);
-    if (!c) c = echarts.init(el, null, { renderer: 'canvas' });
+    if (!c) { c = echarts.init(el, null, { renderer: 'canvas' }); observe(el); }
     c.off('click');
     c.setOption(opt, true);
     charts.set(id, c);
@@ -370,7 +388,7 @@
   }
   function disposeDetached() {
     for (const [id, c] of charts) {
-      if (!document.body.contains(c.getDom())) { c.dispose(); charts.delete(id); tables.delete(id); }
+      if (!document.body.contains(c.getDom())) { if (ro) ro.unobserve(c.getDom()); c.dispose(); charts.delete(id); tables.delete(id); }
     }
   }
   function resizeAll() { for (const c of charts.values()) c.resize(); }
@@ -389,13 +407,13 @@
   }
 
   function tipBox(title, rows, foot) {
-    const line = (r) => `<div style="display:flex;align-items:center;gap:8px;font:12px ${FONT};color:${T.ink2};line-height:1.65">`
+    const line = (r) => `<div style="display:flex;align-items:center;gap:8px;font:12.5px ${FONT};color:${T.ink2};line-height:1.7">`
       + `<span style="width:12px;height:${r.box ? 10 : 3}px;border-radius:2px;background:${r.color};flex:none"></span>`
-      + `<b style="color:${T.ink};font-weight:600">${esc(r.value)}</b><span>${esc(r.name)}</span></div>`;
-    return `<div style="font:600 12.5px ${FONT};color:${T.ink};margin-bottom:3px">${esc(title)}</div>${rows.map(line).join('')}`
-      + (foot ? `<div style="font:11.5px ${FONT};color:${T.muted};margin-top:4px;max-width:260px;white-space:normal">${esc(foot)}</div>` : '');
+      + `<b style="color:${T.ink};font-weight:600;font-variant-numeric:tabular-nums">${esc(r.value)}</b><span>${esc(r.name)}</span>`
+      + (r.extra ? `<span style="color:${T.muted};margin-left:auto;padding-left:10px">${esc(r.extra)}</span>` : '') + '</div>';
+    return `<div style="font:600 13px ${FONT};color:${T.ink};margin-bottom:4px;text-transform:capitalize">${esc(title)}</div>${rows.map(line).join('')}`
+      + (foot ? `<div style="font:11.5px ${FONT};color:${T.muted};margin-top:5px;max-width:280px;white-space:normal">${esc(foot)}</div>` : '');
   }
-  /** Formateur de tooltip "axis" : une ligne par série, valeur d'abord. fmts = {nomSérie: fn} */
   const axisTip = (fmts, titleFn) => (ps) => {
     if (!ps || !ps.length) return '';
     const p0 = ps[0];
@@ -403,6 +421,7 @@
     const title = titleFn ? titleFn(x, p0) : typeof x === 'number' ? fdL(dstr(x)) : String(p0.axisValueLabel || x);
     const rows = [];
     for (const p of ps) {
+      if (p.seriesName && p.seriesName.startsWith('_')) continue;
       const v = Array.isArray(p.value) ? p.value[p.value.length - 1] : p.value;
       if (!isNum(v)) continue;
       const f = fmts[p.seriesName] || ((z) => nf(z, 1));
@@ -413,14 +432,20 @@
 
   function base(extra) {
     return Object.assign({
-      animationDuration: 300, animationDurationUpdate: 250,
+      backgroundColor: 'transparent',
+      animationDuration: 350, animationDurationUpdate: 250,
       textStyle: { fontFamily: FONT, color: T.ink2, fontSize: 12 },
-      grid: { left: 6, right: 14, top: 18, bottom: 6, containLabel: true },
+      grid: { left: 8, right: 16, top: 20, bottom: 8, containLabel: true },
       tooltip: {
-        trigger: 'axis', confine: true, backgroundColor: T.surface, borderColor: T.border, borderWidth: 1, padding: [8, 10],
+        trigger: 'axis', confine: true, backgroundColor: 'rgba(17,22,29,0.97)', borderColor: T.line, borderWidth: 1, padding: [9, 11],
         textStyle: { color: T.ink, fontFamily: FONT, fontSize: 12 },
-        extraCssText: 'box-shadow:0 8px 28px rgba(0,0,0,.16);border-radius:8px;',
-        axisPointer: { type: 'line', lineStyle: { color: T.axis, width: 1 }, shadowStyle: { color: 'rgba(127,138,155,0.08)' } },
+        extraCssText: 'box-shadow:0 12px 32px rgba(0,0,0,.5);border-radius:10px;backdrop-filter:blur(6px);',
+        axisPointer: {
+          type: 'cross', snap: true,
+          lineStyle: { color: T.axis, width: 1 }, crossStyle: { color: T.axis, width: 1 },
+          shadowStyle: { color: 'rgba(255,255,255,0.03)' },
+          label: { backgroundColor: T.card2, color: T.ink, borderColor: T.line, borderWidth: 1, fontFamily: FONT, fontSize: 11, padding: [4, 6] },
+        },
       },
     }, extra);
   }
@@ -431,20 +456,23 @@
       type: 'time', min: tms(S.from), max: tms(S.to) + DAY - 1,
       axisLine: { lineStyle: { color: T.axis } }, axisTick: { show: false }, splitLine: { show: false },
       axisLabel: { color: T.muted, hideOverlap: true, formatter: (v) => tLabel(v, span) },
-      axisPointer: { label: { show: false } },
+      axisPointer: { label: { formatter: (p) => fdW(dstr(p.value)) } },
     }, extra);
   }
   function xCat(data, extra) {
     return Object.assign({
       type: 'category', data, axisLine: { lineStyle: { color: T.axis } }, axisTick: { show: false },
       axisLabel: { color: T.muted, hideOverlap: true }, splitLine: { show: false },
+      axisPointer: { label: { show: false } },
     }, extra);
   }
+  const axisNum = (v) => nf(v, Number.isInteger(v) ? 0 : Number.isInteger(Math.round(v * 1e6) / 1e5) ? 1 : 2);
   function yVal(extra) {
     return Object.assign({
       type: 'value', scale: false, axisLine: { show: false }, axisTick: { show: false },
-      axisLabel: { color: T.muted, formatter: (v) => nf(v, Number.isInteger(v) ? 0 : Number.isInteger(Math.round(v * 1e6) / 1e5) ? 1 : 2) },
-      splitLine: { lineStyle: { color: T.grid } }, nameTextStyle: { color: T.muted, fontSize: 11, align: 'left' },
+      axisLabel: { color: T.muted, formatter: axisNum },
+      splitLine: { lineStyle: { color: T.grid } }, nameGap: 10, nameTextStyle: { color: T.muted, fontSize: 11, align: 'left' },
+      axisPointer: { label: { formatter: (p) => axisNum(Math.round(p.value * 100) / 100) } },
     }, extra);
   }
   const bar = (name, data, color, extra) => Object.assign({
@@ -453,7 +481,7 @@
   }, extra);
   const line = (name, data, color, extra) => Object.assign({
     name, type: 'line', data, showSymbol: false, symbolSize: 8, smooth: false, connectNulls: false,
-    lineStyle: { width: 2, color, cap: 'round', join: 'round' }, itemStyle: { color, borderColor: T.surface, borderWidth: 2 },
+    lineStyle: { width: 2, color, cap: 'round', join: 'round' }, itemStyle: { color, borderColor: T.card, borderWidth: 2 },
     emphasis: { focus: 'none', scale: false },
   }, extra);
 
@@ -488,6 +516,137 @@
       xAxis: { show: false }, yAxis: { show: false }, series: [],
     };
   }
+  const zoom = () => [{ type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }];
+  const toolbox = () => ({
+    right: 0, top: 0, itemSize: 13, itemGap: 8, iconStyle: { borderColor: T.muted }, emphasis: { iconStyle: { borderColor: T.ink } },
+    feature: { dataZoom: { yAxisIndex: 'none', title: { zoom: 'Zoom : sélectionne une zone', back: 'Annuler le zoom' } }, restore: { title: 'Réinitialiser' } },
+  });
+
+  /**
+   * Série temporelle standard avec les outils d'analyse (moyenne 7 j / 28 j, tendance, plage normale, min/max).
+   * cfg = { name, get, color, unit, digits, type:'line'|'bar'|'scatter', baseKey, colorOf(x), gap, extra:[séries], yExtra, legend }
+   */
+  function ts(id, cfg) {
+    const A = S.analysis;
+    const days = F.days.filter((x) => !x.partial || cfg.includePartial);
+    const vals = days.filter((x) => isNum(cfg.get(x)));
+    if (!vals.length) return chart(id, base(emptyOpt(cfg.empty)));
+    const u = cfg.unit ? ' ' + cfg.unit : '';
+    const fmt = cfg.fmt || ((v) => nf(v, cfg.digits || 0) + u);
+    const type = cfg.type || 'line';
+    const main = type === 'bar'
+      ? bar(cfg.name, vals.map((x) => ({ value: [tms(x.d), cfg.get(x)], itemStyle: cfg.colorOf ? { color: cfg.colorOf(x), borderRadius: [3, 3, 0, 0] } : undefined })), cfg.color, { barMaxWidth: 16, large: vals.length > 600 })
+      : type === 'scatter'
+        ? { name: cfg.name, type: 'scatter', data: vals.map((x) => [tms(x.d), cfg.get(x)]), symbolSize: 6, itemStyle: { color: cfg.color, opacity: 0.55 } }
+        : line(cfg.name, series(days, cfg.get, cfg.gap || 10), cfg.color, { lineStyle: { width: A.ma7 ? 1.25 : 2, color: cfg.color, opacity: A.ma7 ? 0.55 : 1 }, symbol: 'circle' });
+    const out = [main];
+    const legend = [cfg.name];
+    // moyenne glissante
+    const roll = (win, minN) => days.map((x, i) => {
+      const a = [];
+      for (let j = Math.max(0, i - win + 1); j <= i; j++) { const v = cfg.get(days[j]); if (isNum(v)) a.push(v); }
+      return [tms(x.d), a.length >= minN ? +mean(a).toFixed(3) : null];
+    });
+    if (A.ma7) { out.push(line('Moyenne 7 j', roll(7, 4), cfg.color, { lineStyle: { width: 2.5, color: cfg.color } })); legend.push('Moyenne 7 j'); }
+    if (A.ma28) { out.push(line('Moyenne 28 j', roll(28, 10), T.ink2, { lineStyle: { width: 1.5, color: T.ink2 } })); legend.push('Moyenne 28 j'); }
+    // plage normale personnelle (médiane ± écart robuste des 30 jours précédents)
+    if (A.band && cfg.baseKey) {
+      const bd = days.filter((x) => x.base && x.base[cfg.baseKey]);
+      if (bd.length) {
+        out.push({ name: '_bas', type: 'line', stack: 'band-' + id, data: bd.map((x) => [tms(x.d), x.base[cfg.baseKey].lo]), lineStyle: { opacity: 0 }, symbol: 'none', silent: true, tooltip: { show: false } });
+        out.push({ name: 'Plage normale', type: 'line', stack: 'band-' + id, data: bd.map((x) => [tms(x.d), x.base[cfg.baseKey].hi - x.base[cfg.baseKey].lo]), lineStyle: { opacity: 0 }, symbol: 'none', areaStyle: { color: cfg.color, opacity: 0.12 }, itemStyle: { color: cfg.color }, silent: true });
+        legend.push('Plage normale');
+      }
+    }
+    // tendance linéaire sur la période affichée
+    let slope = null;
+    if (A.trend && vals.length >= 5) {
+      const x0 = tms(vals[0].d);
+      const xs = vals.map((x) => (tms(x.d) - x0) / DAY), ys = vals.map(cfg.get);
+      const { a, b } = linreg(xs, ys);
+      slope = b * 7;
+      out.push(line('Tendance', [[x0, a], [tms(vals[vals.length - 1].d), a + b * xs[xs.length - 1]]], T.ink, { lineStyle: { width: 1.5, type: [6, 4], color: T.ink, opacity: 0.8 }, symbol: 'none', tooltip: { show: false } }));
+      legend.push('Tendance');
+    }
+    if (A.minmax && main.type !== 'scatter') {
+      main.markPoint = {
+        symbol: 'pin', symbolSize: 38, label: { color: '#fff', fontSize: 10, formatter: (p) => nf(p.value, cfg.digits || 0) },
+        data: [{ type: 'max', name: 'Max', itemStyle: { color: T.good } }, { type: 'min', name: 'Min', itemStyle: { color: T.crit } }],
+      };
+      main.markLine = { silent: true, symbol: 'none', lineStyle: { color: T.muted, type: 'solid', width: 1 }, label: { color: T.muted, fontSize: 11, position: 'insideEndTop', formatter: (p) => `moy. ${nf(p.value, cfg.digits || 0)}` }, data: [{ type: 'average' }] };
+    }
+    if (cfg.markArea) main.markArea = cfg.markArea;
+    if (cfg.markLines) main.markLine = Object.assign({ silent: true, symbol: 'none', data: [] }, main.markLine || {}, { data: ((main.markLine && main.markLine.data) || []).concat(cfg.markLines) });
+    for (const s of cfg.extra || []) { out.push(s); if (s.name && !s.name.startsWith('_')) legend.push(s.name); }
+
+    const byMs = new Map(days.map((x) => [tms(x.d), x]));
+    const opt = base({
+      // l'unité de l'axe (nom) se place sous la légende : grille à 44 px du haut
+      grid: { left: 8, right: 16, top: 44, bottom: 8, containLabel: true },
+      legend: { show: true, data: legend, top: 0, left: 0, icon: 'roundRect', itemWidth: 12, itemHeight: 4, textStyle: { color: T.ink2, fontSize: 11.5 }, inactiveColor: T.axis, selectedMode: true },
+      toolbox: toolbox(),
+      dataZoom: zoom(),
+      tooltip: Object.assign(base().tooltip, {
+        formatter: (ps) => {
+          if (!ps || !ps.length) return '';
+          const ms = Array.isArray(ps[0].value) ? ps[0].value[0] : null;
+          const x = byMs.get(ms);
+          if (!x) return axisTip({})(ps);
+          const rows = [];
+          const v = cfg.get(x);
+          if (isNum(v)) {
+            const b = cfg.baseKey && x.base && x.base[cfg.baseKey];
+            const z = cfg.baseKey && x.z ? x.z[cfg.baseKey] : null;
+            rows.push({ color: cfg.colorOf ? cfg.colorOf(x) : cfg.color, value: fmt(v), name: cfg.name, box: type === 'bar',
+              extra: isNum(z) ? `${sgn(z, 1)} σ vs norme` : '' });
+            if (b) rows.push({ color: cfg.color, value: `${nf(b.lo, cfg.digits || 0)}–${nf(b.hi, cfg.digits || 0)}${u}`, name: 'plage normale (30 j)', extra: `${sgn(((v - b.m) / b.m) * 100, 0)} %` });
+          }
+          for (const p of ps) {
+            if (p.seriesName === cfg.name || p.seriesName.startsWith('_') || p.seriesName === 'Plage normale' || p.seriesName === 'Tendance') continue;
+            const pv = Array.isArray(p.value) ? p.value[1] : p.value;
+            if (isNum(pv)) rows.push({ color: typeof p.color === 'string' ? p.color : T.ink2, value: (cfg.fmtFor && cfg.fmtFor[p.seriesName] ? cfg.fmtFor[p.seriesName] : fmt)(pv), name: p.seriesName });
+          }
+          const foot = [cfg.foot ? cfg.foot(x) : '', isNum(slope) ? `Tendance de la période : ${sgn(slope, (cfg.digits || 0) + 1)}${u} / sem` : ''].filter(Boolean).join(' · ');
+          return tipBox(fdL(x.d), rows, foot || null);
+        },
+      }),
+      xAxis: xTime(),
+      yAxis: yVal(Object.assign({ scale: cfg.type !== 'bar', name: cfg.unit || '' }, cfg.yExtra || {})),
+      series: out,
+    });
+    const c = chart(id, opt, cfg.table || (() => ({
+      cols: ['Date', cfg.name + (cfg.unit ? ` (${cfg.unit})` : ''), ...(cfg.baseKey ? ['Norme (médiane 30 j)', 'Écart (σ)'] : [])],
+      rows: vals.map((x) => [fdM(x.d), nf(cfg.get(x), cfg.digits || 0), ...(cfg.baseKey ? [x.base && x.base[cfg.baseKey] ? nf(x.base[cfg.baseKey].m, cfg.digits || 0) : '—', x.z && isNum(x.z[cfg.baseKey]) ? sgn(x.z[cfg.baseKey], 1) : '—'] : [])]),
+    })));
+    if (c && cfg.onDay) c.on('click', (p) => { const v = Array.isArray(p.value) ? p.value[0] : null; if (isNum(v)) cfg.onDay(dstr(v)); });
+    return c;
+  }
+
+  // ================================================================ composants visuels
+  /** Anneau façon Whoop. value/max, couleur, contenu central. */
+  function ring(o) {
+    const size = o.size || 132, sw = o.stroke || 10, r = (120 - sw) / 2, c = 2 * Math.PI * r;
+    const has = isNum(o.value);
+    const frac = has ? Math.max(0, Math.min(1, o.value / (o.max || 100))) : 0;
+    return `<div class="ring${o.cls ? ' ' + o.cls : ''}" style="--rc:${o.color};width:${size}px" ${o.title ? `title="${esc(o.title)}"` : ''}>
+      <svg viewBox="0 0 120 120" width="${size}" height="${size}" aria-hidden="true">
+        <circle cx="60" cy="60" r="${r}" fill="none" stroke="${o.color}" stroke-opacity="0.14" stroke-width="${sw}"/>
+        <circle cx="60" cy="60" r="${r}" fill="none" stroke="${o.color}" stroke-width="${sw}" stroke-linecap="round"
+          stroke-dasharray="${(frac * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 60 60)"/>
+      </svg>
+      <div class="ring-c"><b>${has ? esc(o.text != null ? o.text : nf(o.value, 0)) : '—'}</b>${o.unit ? `<span>${esc(o.unit)}</span>` : ''}</div>
+      ${o.label ? `<div class="ring-l">${esc(o.label)}</div>` : ''}
+    </div>`;
+  }
+  /** Barre de plage : zones de référence + marqueur de la valeur + repère de la norme perso */
+  function rangeBar(o) {
+    const [a, b] = o.scale;
+    const pos = (v) => Math.max(0, Math.min(100, ((v - a) / (b - a)) * 100));
+    const zones = (o.zones || []).map(([z0, z1, st]) => `<i style="left:${pos(z0)}%;width:${pos(z1) - pos(z0)}%;background:${zoneColor(st)}"></i>`).join('');
+    const band = isNum(o.bandLo) && isNum(o.bandHi) ? `<em style="left:${pos(o.bandLo)}%;width:${Math.max(1, pos(o.bandHi) - pos(o.bandLo))}%"></em>` : '';
+    const mk = isNum(o.value) ? `<b style="left:${pos(o.value)}%;background:${o.color || T.ink}"></b>` : '';
+    return `<div class="rbar" role="img" aria-label="${esc(o.aria || '')}">${zones}${band}${mk}</div>`;
+  }
 
   // ================================================================ tuiles KPI
   function deltaCls(delta, good, eps) {
@@ -496,7 +655,7 @@
     if (!good) return 'flat';
     return `${dir}-${good === dir ? 'good' : 'bad'}`;
   }
-  function spark(vals, color) {
+  function spark(vals, color, h) {
     const pts = vals.map((v, i) => [i, v]).filter((p) => isNum(p[1]));
     if (pts.length < 2) return '';
     const W = 200, H = 40, pad = 4, n = Math.max(1, vals.length - 1);
@@ -507,23 +666,20 @@
     const d = pts.map((p, j) => (j ? 'L' : 'M') + sx(p[0]).toFixed(1) + ' ' + sy(p[1]).toFixed(1)).join('');
     const l = pts[pts.length - 1];
     const area = `${d}L${sx(l[0]).toFixed(1)} ${H}L${sx(pts[0][0]).toFixed(1)} ${H}Z`;
-    return `<div style="position:relative;height:100%"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
-      + `<path d="${area}" fill="${color}" opacity="0.1"/><path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`
-      + `<span style="position:absolute;left:calc(${((sx(l[0]) / W) * 100).toFixed(2)}% - 5px);top:calc(${((sy(l[1]) / H) * 100).toFixed(2)}% - 5px);width:10px;height:10px;border-radius:50%;background:${color};box-shadow:0 0 0 2px ${T.surface}"></span></div>`;
+    return `<div class="spk" style="height:${h || 34}px"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">`
+      + `<path d="${area}" fill="${color}" opacity="0.12"/><path d="${d}" fill="none" stroke="${color}" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+      + `<span style="left:calc(${((sx(l[0]) / W) * 100).toFixed(2)}% - 4px);top:calc(${((sy(l[1]) / H) * 100).toFixed(2)}% - 4px);background:${color}"></span></div>`;
   }
-  /**
-   * @param o {label, value, unit, digits, delta, deltaDigits, deltaUnit, good:'up'|'down'|null, ctx, spark, color, hero, meter, status}
-   */
   function kpi(o) {
     const has = isNum(o.value);
-    const val = has ? `${o.fmt ? o.fmt(o.value) : nf(o.value, o.digits || 0)}${o.unit ? `<small>${esc(o.unit)}</small>` : ''}` : '<span class="na">Pas de donnée</span>';
+    const val = has ? `${o.fmt ? o.fmt(o.value) : nf(o.value, o.digits || 0)}${o.unit ? `<small>${esc(o.unit)}</small>` : ''}` : '<span class="na">—</span>';
     const d = isNum(o.delta)
       ? `<span class="delta ${deltaCls(o.delta, o.good, o.eps)}">${o.delta > 0 ? '▲' : o.delta < 0 ? '▼' : '■'} ${esc(o.deltaFmt ? o.deltaFmt(o.delta) : sgn(o.delta, o.deltaDigits == null ? 1 : o.deltaDigits) + (o.deltaUnit || ''))}</span>${o.deltaLabel === '' ? '' : `<span>${esc(o.deltaLabel || 'vs période préc.')}</span>`}`
       : '';
-    return `<div class="kpi${o.hero ? ' hero' : ''}"><div class="lab">${esc(o.label)}</div><div class="val">${val}</div>`
-      + `<div class="ctx">${d}${o.status || ''}</div>${o.ctx ? `<div class="ctx">${o.ctx}</div>` : ''}`
-      + (o.meter != null ? `<div class="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.round(o.meter)}"><i style="width:${Math.max(0, Math.min(100, o.meter))}%"></i></div>` : '')
-      + (o.spark ? `<div class="spark">${spark(o.spark, o.color || T.s[0])}</div>` : '')
+    return `<div class="kpi" style="--kc:${o.color || T.s[0]}"><div class="lab">${esc(o.label)}</div><div class="val">${val}</div>`
+      + `<div class="ctx">${d}${o.status || ''}</div>${o.ctx ? `<div class="ctx sub">${o.ctx}</div>` : ''}`
+      + (o.meter != null ? `<div class="meter"><i style="width:${Math.max(0, Math.min(100, o.meter))}%"></i></div>` : '')
+      + (o.spark ? spark(o.spark, o.color || T.s[0]) : '')
       + '</div>';
   }
   const statusPill = (v, good, warn, labels) => {
@@ -534,21 +690,24 @@
 
   // ================================================================ métriques (explorateur & matrice)
   const METRICS = {
+    rec: { label: 'Récupération', unit: '%', d: 0, get: (x) => x.rec },
+    strain: { label: 'Charge', unit: '/21', d: 1, get: (x) => x.strain },
     sleepH: { label: 'Sommeil', unit: 'h', d: 1, get: (x) => x.sleepH },
+    sleepPerf: { label: 'Performance sommeil', unit: '%', d: 0, get: (x) => x.sleepPerf },
     hrv: { label: 'HRV (indicative)', unit: 'ms', d: 0, get: (x) => x.hrv },
     rhr: { label: 'FC repos', unit: 'bpm', d: 0, get: (x) => x.rhr },
-    rec: { label: 'Score récup', unit: '/100', d: 0, get: (x) => x.rec },
+    resp: { label: 'Fréq. respiratoire', unit: '/min', d: 1, get: (x) => x.resp },
     steps: { label: 'Pas', unit: '', d: 0, get: (x) => x.steps },
     activeKcal: { label: 'Calories actives', unit: 'kcal', d: 0, get: (x) => x.activeKcal },
     strMin: { label: 'Muscu (min)', unit: 'min', d: 0, get: (x) => (x.train ? x.strMin : 0) },
-    actMin: { label: 'Activité (min)', unit: 'min', d: 0, get: (x) => x.actMin },
     kcal: { label: 'Calories ingérées', unit: 'kcal', d: 0, get: (x) => (logged(x) ? x.kcal : null) },
     prot: { label: 'Protéines', unit: 'g', d: 0, get: (x) => (logged(x) ? x.prot : null) },
     carb: { label: 'Glucides', unit: 'g', d: 0, get: (x) => (logged(x) ? x.carb : null) },
+    caffeine: { label: 'Caféine', unit: 'mg', d: 0, get: (x) => x.caffeine },
+    mood: { label: 'Humeur (Apple)', unit: '', d: 1, get: (x) => x.mood },
     walkAsym: { label: 'Asymétrie de marche', unit: '%', d: 1, get: (x) => x.walkAsym },
     trendD7: { label: 'Δ poids tendance 7 j', unit: 'kg', d: 2, get: (x) => x.trendD7 },
   };
-  /** paires (x du jour j, y du jour j+lag) sur les jours filtrés */
   function pairs(days, kx, ky, lag) {
     const M = SD.M, gx = METRICS[kx].get, gy = METRICS[ky].get;
     const xs = [], ys = [], ds = [];
@@ -567,12 +726,12 @@
   };
 
   Object.assign(SD, {
-    FONT, DAY, tms, dstr, addD, wdOf, weekOf, monthOf, nextMonth, nDays, WD, WDL, fdate, fdS, fdM, fdL,
+    FONT, FONT_C, DAY, tms, dstr, addD, wdOf, weekOf, monthOf, nextMonth, nDays, WD, WDL, fdate, fdS, fdM, fdL, fdW,
     isNum, pluck, sum, mean, median, sd, pearson, linreg, pctRank, nf, sgn, fHM, fH, esc,
-    readTheme, withDefaults, TYPE_ORDER, typeKey, typeColor, STRENGTH, SPLITS, splitColor, prepare,
-    PRESETS, DEFAULT_STATE, S, loadState, saveState, presetRange, setPreset, setRange, partialKcal, logged,
+    readTheme, zoneColor, recColor, scoreColor, pillarColor, withDefaults, TYPE_ORDER, typeKey, typeColor, STRENGTH, SPLITS, splitColor, prepare,
+    PRESETS, DEFAULT_STATE, S, loadState, saveState, presetRange, setPreset, setRange, setDay, partialKcal, logged,
     compute, gran, bucketOf, bucketKeys, bucketEnd, bucketLabel, bucketTitle, granUnit, agg,
     chart, charts, tables, disposeDetached, resizeAll, renderTable, tipBox, axisTip, base, xTime, xCat, yVal, bar, line, series,
-    phaseColor, phaseArea, emptyOpt, kpi, spark, statusPill, deltaCls, METRICS, pairs, rWord,
+    phaseColor, phaseArea, emptyOpt, zoom, toolbox, ts, ring, rangeBar, kpi, spark, statusPill, deltaCls, METRICS, pairs, rWord,
   });
 })();
