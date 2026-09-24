@@ -1,0 +1,8 @@
+# Données personnelles : jamais dans git (le dépôt est public)
+data/raw/
+data/config.json
+data/dashboard-data.js
+dist/
+
+node_modules/
+.DS_Store

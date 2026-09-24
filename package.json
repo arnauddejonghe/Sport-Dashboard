@@ -1,0 +1,16 @@
+{
+  "name": "sport-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dashboard d'entraînement personnel (Apple Santé, MacroFactor, TrainAI)",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "serve": "npx --yes http-server -c-1 -p 8080 ."
+  },
+  "dependencies": {
+    "xlsx": "0.18.5"
+  },
+  "devDependencies": {
+    "echarts": "5.5.1"
+  }
+}
