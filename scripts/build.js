@@ -54,7 +54,7 @@ function main() {
       const p = P.parseFile(file, XLSX);
       parts.push(p);
       const n = p.kind === 'health' ? `${Object.keys(p.days).length} jours, ${p.workouts.length} séances`
-        : p.kind === 'macrofactor' ? `${Object.keys(p.days).length} jours, ${p.exercises.length} lignes exercice`
+        : p.kind === 'macrofactor' ? [Object.keys(p.days).length ? `${Object.keys(p.days).length} jours` : '', (p.sessions || []).length ? `${p.sessions.length} séances` : '', `${p.exercises.length} lignes exercice`].filter(Boolean).join(', ')
         : p.kind === 'trainai' ? `${p.sessions.length} séances, ${p.exercises.length} lignes exercice`
         : p.kind === 'coach' ? `rapport du ${p.entries[0].d}`
         : p.kind === 'labs' ? `${p.labs.length} résultats`

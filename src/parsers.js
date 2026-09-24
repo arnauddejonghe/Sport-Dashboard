@@ -378,6 +378,7 @@
   function sheetRows(wb, XLSX, name) {
     const ws = wb.Sheets[name];
     if (!ws) return null;
+    if (ws.__rows) return ws.__rows; // onglet reconstitué depuis un CSV
     return XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null, blankrows: false });
   }
 
@@ -429,9 +430,41 @@
   function isMacroFactor(wb) {
     return MF_SHEETS.some((s) => !!wb.Sheets[s]);
   }
+  // Export MacroFactor au format CSV (un onglet par fichier) : l'onglet se reconnaît à ses en-têtes
+  const MF_CSV_SHEETS = [
+    ['Workout Log', (h) => h.has('exercise') && h.has('set type')],
+    ['Workout Log Notes', (h) => h.has('exercise name') && h.has('workout log notes')],
+    ['Food Log Notes', (h) => h.has('food log notes')],
+    ['Food Log', (h) => h.has('food name') && h.has('time') && h.has('date')],
+    ['Quick Export', (h) => h.has('expenditure') && h.has('trend weight (kg)')],
+    ['Muscle Groups - Sets', (h) => h.has('chest (sets)') || h.has('quads (sets)')],
+    ['Muscle Groups - Volume', (h) => h.has('chest (kg)') || h.has('quads (kg)')],
+    ['Body Metrics', (h) => h.has('waist (cm)') || h.has('left bicep (cm)')],
+    ['Micronutrients', (h) => h.has('alcohol (g)') && h.size > 10],
+    ['Calories & Macros', (h) => h.has('calories (kcal)') && h.has('protein (g)') && !h.has('food name')],
+    ['Scale Weight', (h) => h.has('weight (kg)') && h.has('fat percent')],
+    ['Weight Trend', (h) => h.has('trend weight (kg)')],
+    ['Expenditure', (h) => h.has('expenditure')],
+    ['Steps', (h) => h.has('steps') && h.size <= 3],
+    ['Weight Goals', (h) => h.has('goal') && h.has('start date')],
+    ['User Profile', (h) => h.has('birthday') && h.has('height (cm)')],
+  ];
+  function mfSheetFromHeader(hdr) {
+    const h = new Set((hdr || []).map((x) => String(x || '').trim().toLowerCase()));
+    const hit = MF_CSV_SHEETS.find(([, test]) => test(h));
+    return hit ? hit[0] : null;
+  }
+  /** CSV MacroFactor -> classeur minimal lisible par parseMacroFactor (nombres typés, cellules vides = null) */
+  function mfWorkbookFromCSV(text) {
+    const rows = parseCSV(text);
+    const sheet = rows.length ? mfSheetFromHeader(rows[0]) : null;
+    if (!sheet) return null;
+    const typed = rows.map((r, i) => (i === 0 ? r : r.map((c) => (c === '' ? null : /^-?\d+(\.\d+)?$/.test(c) ? +c : c))));
+    return { SheetNames: [sheet], Sheets: { [sheet]: { __rows: typed } } };
+  }
   // Haltères : MacroFactor note le poids des deux haltères dans le journal de séries et la meilleure série,
   // mais un seul haltère dans « charge max » et « 1-RM ». On ramène tout au poids d'un haltère.
-  const isPairDB = (n) => /dumbbell/i.test(n) && !/(single|one)[ -]?arm/i.test(n);
+  const isPairDB = (n) => /dumbbell/i.test(n) && !/(single|one)[ -]?arm|concentration|goblet/i.test(n);
   const cleanExName = (n) => String(n || '').replace(/\s*∈.*$/, '').replace(/\s*\(Copy\)\s*$/i, '').trim();
 
   function parseMacroFactor(wb, XLSX, fileName) {
@@ -587,29 +620,57 @@
       if (o.bsv > 0 && o.br > 0) { const w = o.bsv / o.br / (isPairDB(o.n) ? 2 : 1); o.e1 = r1(epley(w, o.br), 1); }
       delete o.bsv;
     }
-    // Journal de séries (export rapide ou granulaire) : séries de travail uniquement, RIR ; prioritaire sur les onglets agrégés
+    // Journal de séries (export rapide ou granulaire) : séries de travail uniquement, RIR ; prioritaire sur les onglets agrégés.
+    // Comptage identique à MacroFactor (vérifié sur 894 exercices-jours) : l'échauffement ne compte pas ; une série dégressive
+    // (« Drop Set » puis ses « Drop ») ou myo-reps (« Myo Set » puis ses « Mini-set ») compte pour une série ; une série
+    // unilatérale notée côté gauche (L) puis droit (R) compte pour une série ; une série chronométrée (gainage) compte.
     const wl = sheetRows(wb, XLSX, 'Workout Log');
+    const sessions = [];
     if (wl) {
       const h = wl[0];
       const iD = colIndex(h, /^Date$/i), iE = colIndex(h, /^Exercise$/i), iT = colIndex(h, /^Set Type/i), iW = colIndex(h, /^Weight/i), iR = colIndex(h, /^Reps/i), iRir = colIndex(h, /^RIR/i);
+      const iDur = colIndex(h, /^Duration$/i), iWD = colIndex(h, /^Workout Duration/i), iWo = colIndex(h, /^Workout$/i);
       const logEx = {};
+      const prevType = {};
+      const wdur = {};
       for (let r = 1; r < wl.length; r++) {
         const d = toISODate(wl[r][iD], XLSX);
         const n = cleanExName(wl[r][iE]);
-        if (!d || !n || /warm/i.test(String(wl[r][iT] || ''))) continue;
+        if (!d || !n) continue;
+        if (iWD >= 0 && typeof wl[r][iWD] === 'number') { const w = wdur[d] || (wdur[d] = {}); w[String(iWo >= 0 ? wl[r][iWo] : '') || '·'] = wl[r][iWD]; }
+        const raw = String(wl[r][iT] || 'Standard Set');
+        const side = (raw.match(/\((L|R)\)\s*$/) || [])[1] || '';
+        const type = raw.replace(/\s*\((L|R)\)\s*$/, '').trim();
+        const pk = d + '|' + n + '|' + side;
+        const prev = prevType[pk];
+        prevType[pk] = type;
+        if (/warm/i.test(type)) continue;
+        const cont = /mini/i.test(type) || (/^drop$/i.test(type) && /^drop( set)?$/i.test(prev || '')); // suite d'une série déjà comptée
         const w = typeof wl[r][iW] === 'number' ? wl[r][iW] : 0, reps = typeof wl[r][iR] === 'number' ? wl[r][iR] : 0;
-        if (!reps) continue;
+        const timed = !reps && iDur >= 0 && typeof wl[r][iDur] === 'number' && wl[r][iDur] > 0;
+        if (typeof wl[r][iR] !== 'number' && !timed) continue; // ligne vide ; une série à 0 répétition (échec) compte, comme dans MacroFactor
         const k = d + '|' + n;
         const o = logEx[k] || (logEx[k] = { d, n, sets: 0, reps: 0, vol: 0, hw: 0, br: 0, bsv: 0, bw: 0, rirs: [] });
+        if (!cont) o.sets += side ? 0.5 : 1;
+        if (!reps) continue;
         const wph = w / (isPairDB(n) ? 2 : 1);
-        o.sets += 1; o.reps += reps; o.vol += w * reps; o.hw = Math.max(o.hw, wph);
+        o.reps += reps; o.vol += w * reps; o.hw = Math.max(o.hw, wph);
         if (w * reps > o.bsv) { o.bsv = w * reps; o.br = reps; o.bw = wph; }
-        if (iRir >= 0 && typeof wl[r][iRir] === 'number') o.rirs.push(wl[r][iRir]);
+        if (!cont) {
+          const rir = iRir >= 0 ? wl[r][iRir] : null;
+          if (typeof rir === 'number') o.rirs.push(rir);
+          else if (/failure/i.test(type)) o.rirs.push(0);
+        }
       }
       for (const [k, o] of Object.entries(logEx)) {
-        exercises[k] = { d: o.d, n: o.n, s: 'MF', sets: o.sets, reps: o.reps, vol: r1(o.vol, 0), hw: r1(o.hw, 1), br: o.br,
+        exercises[k] = { d: o.d, n: o.n, s: 'MF', sets: r1(o.sets, 1), reps: o.reps, vol: r1(o.vol, 0), hw: o.hw > 0 ? r1(o.hw, 1) : null, br: o.br || null,
           e1: o.bw > 0 ? r1(epley(o.bw, o.br), 1) : null,
           rir: o.rirs.length ? r1(o.rirs.reduce((a, b) => a + b, 0) / o.rirs.length, 1) : null, fail: o.rirs.filter((x) => x === 0).length };
+      }
+      // durée de séance (secondes par séance, plusieurs séances possibles le même jour)
+      for (const [d, w] of Object.entries(wdur)) {
+        const sec = Object.values(w).reduce((a, b) => a + b, 0);
+        if (sec > 0) sessions.push({ d, min: Math.round(sec / 60) });
       }
     }
 
@@ -681,7 +742,7 @@
     return {
       kind: 'macrofactor', fileName, exportedAt: exportDateFromName(fileName),
       days, targets, muscles: Object.values(muscles), exercises: Object.values(exercises),
-      body, phases, notes, profile,
+      body, phases, notes, profile, sessions,
     };
   }
 
@@ -753,12 +814,15 @@
     if (/\.csv$/i.test(name) || typeof file.text === 'string') {
       const text = file.text.replace(/^﻿/, '');
       const first = text.split(/\r?\n/)[0].toLowerCase();
+      // export MacroFactor en CSV (granulaire) : avant les autres tests, son en-tête commence aussi par « Date »
+      const mfwb = /set type|trend weight|food name|\(sets\)|fat percent|workout log notes|food log notes/.test(first) || /macrofactor/i.test(name) ? mfWorkbookFromCSV(text) : null;
+      if (mfwb) return parseMacroFactor(mfwb, XLSX, name);
       if (/(marqueur|marker|analyte|param[eè]tre)/.test(first) && /(valeur|value|r[ée]sultat)/.test(first)) return parseLabsCSV(text, name);
       if (/^"?date"?\s*[,;]\s*"?notes?"?/.test(first)) return parseNotesCSV(text, name);
       // journal enrichi (raccourci, formulaire) : date + note / tags / humeur…, sans colonnes Apple Santé
       if (/^"?(date|jour)"?\s*[,;]/.test(first) && /(notes?|texte|tags?|humeur|[ée]nergie|courbature|ressenti)"?\s*([,;]|$)/.test(first) && !/steps|\(kcal\)|\(bpm\)/.test(first)) return parseNotesCSV(text, name);
       if (first.startsWith('date,') || first.startsWith('"date"')) return parseHealthCSV(text, name);
-      throw new Error(`${name} : CSV non reconnu (attendu : Health Export, journal Date,Notes ou bilan Date,Marqueur,Valeur)`);
+      throw new Error(`${name} : CSV non reconnu (attendu : Health Export, MacroFactor, journal Date,Notes ou bilan Date,Marqueur,Valeur)`);
     }
     if (!XLSX) throw new Error('Bibliothèque XLSX indisponible');
     const wb = XLSX.read(file.buffer, { type: 'array', cellDates: false });
@@ -889,9 +953,11 @@
       workouts.push({ d: s.d, type: 'Musculation', min: s.min, src: 'TrainAI' });
       strengthDays.add(s.d);
     }
+    const mfMin = new Map();
+    for (const mf of mfParts) for (const s of mf.sessions || []) mfMin.set(s.d, s.min);
     for (const d of new Set(exercises.map((e) => e.d))) {
       if (!strengthDays.has(d)) {
-        workouts.push({ d, type: 'Musculation', min: null, src: 'MacroFactor' });
+        workouts.push({ d, type: 'Musculation', min: mfMin.has(d) ? mfMin.get(d) : null, src: 'MacroFactor' });
         strengthDays.add(d);
       }
     }
@@ -947,7 +1013,7 @@
 
     const sources = parts.map((p) => {
       let from = null, to = null, n = 0;
-      const ds = p.kind === 'health' ? Object.keys(p.days) : p.kind === 'macrofactor' ? Object.keys(p.days)
+      const ds = p.kind === 'health' ? Object.keys(p.days) : p.kind === 'macrofactor' ? [...new Set(Object.keys(p.days).concat(p.exercises.map((e) => e.d), p.muscles.map((m) => m.d)))]
         : p.kind === 'trainai' ? p.sessions.map((s) => s.d) : p.kind === 'coach' ? p.entries.map((e) => e.d)
         : p.kind === 'labs' ? p.labs.map((l) => l.d) : (p.notes || []).map((n) => n.d);
       for (const d of ds) { if (!from || d < from) from = d; if (!to || d > to) to = d; n++; }
@@ -1005,7 +1071,12 @@
       return [s.reduce((m, x) => (x.from < m ? x.from : m), s[0].from), s.reduce((m, x) => (x.to > m ? x.to : m), s[0].to)];
     };
     const inR = (d, r) => r && d >= r[0] && d <= r[1];
-    const hR = covered('health'), mR = covered('macrofactor'), tR = covered('trainai');
+    const hR = covered('health'), tR = covered('trainai');
+    // MacroFactor : chaque catégorie n'est remplacée que sur la période qu'elle couvre dans le nouvel export
+    // (un journal de séances seul ne doit ni dupliquer les exercices ni vider les séries par muscle).
+    const spanOf = (arr) => (arr.length ? [arr.reduce((m, x) => (x.d < m ? x.d : m), arr[0].d), arr.reduce((m, x) => (x.d > m ? x.d : m), arr[0].d)] : null);
+    const mExR = spanOf(add.exercises.filter((e) => e.s === 'MF'));
+    const mMusR = spanOf(add.muscles || []);
 
     const byDate = new Map(base.days.map((x) => [x.d, Object.assign({}, x)]));
     const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'water', 'lastMeal', 'nutriSrc'];
@@ -1019,8 +1090,8 @@
       } else merged = Object.assign({}, old, n);
       byDate.set(n.d, merged);
     }
-    const keepW = (w) => !(w.src === 'Santé' && inR(w.d, hR)) && !(w.src === 'MacroFactor' && inR(w.d, mR)) && !(w.src === 'TrainAI' && inR(w.d, tR));
-    const keepEx = (e) => !(e.s === 'MF' && inR(e.d, mR)) && !(e.s === 'TA' && inR(e.d, tR));
+    const keepW = (w) => !(w.src === 'Santé' && inR(w.d, hR)) && !(w.src === 'MacroFactor' && inR(w.d, mExR)) && !(w.src === 'TrainAI' && inR(w.d, tR));
+    const keepEx = (e) => !(e.s === 'MF' && inR(e.d, mExR)) && !(e.s === 'TA' && inR(e.d, tR));
     let workouts = base.workouts.filter(keepW).concat(add.workouts.filter((w) => !base.workouts.some((b) => keepW(b) && b.d === w.d && b.type === w.type && b.min === w.min)));
     // une séance déduite d'un log MacroFactor n'a lieu d'être que si aucune séance muscu n'est déjà connue ce jour-là
     const strengthDays = new Set(workouts.filter((w) => w.src !== 'MacroFactor' && STRENGTH.has(w.type)).map((w) => w.d));
@@ -1044,7 +1115,7 @@
       days,
       workouts: workouts.sort((a, b) => a.d.localeCompare(b.d)),
       exercises: base.exercises.filter(keepEx).concat(add.exercises).sort((a, b) => a.d.localeCompare(b.d) || a.n.localeCompare(b.n)),
-      muscles: mR ? base.muscles.filter((m) => !inR(m.d, mR)).concat(add.muscles).sort((a, b) => a.d.localeCompare(b.d)) : base.muscles,
+      muscles: mMusR ? base.muscles.filter((m) => !inR(m.d, mMusR)).concat(add.muscles).sort((a, b) => a.d.localeCompare(b.d)) : base.muscles,
       // un export MacroFactor partiel (rapide, granulaire) ne contient ni cibles, ni mensurations, ni phases : on garde l'existant
       targets: add.targets && add.targets.length ? add.targets : base.targets,
       body: add.body && add.body.length ? add.body : base.body,

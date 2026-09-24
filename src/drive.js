@@ -91,7 +91,7 @@
       const t = f.title || '';
       if (f.mimeType === MIME.folder) return null;
       if (/^(HealthExport|Export_Apple_Sante)/i.test(t) && /csv/i.test(f.mimeType + t)) return 'health';
-      if (/macrofactor/i.test(t) && (f.mimeType === MIME.xlsx || /\.xlsx$/i.test(t))) return 'macrofactor';
+      if (/macrofactor/i.test(t) && (f.mimeType === MIME.xlsx || /\.(xlsx|csv)$/i.test(t) || /csv/i.test(f.mimeType || ''))) return 'macrofactor';
       if (/trainai/i.test(t) && (f.mimeType === MIME.xlsx || /\.xlsx$/i.test(t))) return 'trainai';
       if (/(retours|journal)/i.test(t) && (f.mimeType === MIME.sheet || /csv/i.test(f.mimeType + t))) return 'notes';
       if (/_coach/i.test(t) && /(markdown|text)/i.test(f.mimeType || '') || /_coach.*\.md$/i.test(t)) return 'coach';
@@ -120,9 +120,14 @@
         const known = new Map(raw.sources.map((s) => [norm(s.fileName), s]));
         const candidates = [];
         const coachBest = new Map();
+        const ignored = [];
         for (const f of files) {
           const kind = this.classify(f);
-          if (!kind) continue;
+          if (!kind) {
+            // fichier de données non reconnu : on le signale au lieu de l'ignorer en silence
+            if (f.mimeType !== MIME.folder && (/\.(csv|xlsx|xls|json|md|txt)$/i.test(f.title || '') || f.mimeType === MIME.sheet)) ignored.push(f.title);
+            continue;
+          }
           const k = known.get(norm(f.title));
           const changed = !k || (f.modifiedTime && f.modifiedTime > since && (!k.modifiedTime || f.modifiedTime > k.modifiedTime));
           if (!changed) continue;
@@ -141,11 +146,12 @@
         }
         candidates.sort((a, b) => String(a.f.modifiedTime).localeCompare(String(b.f.modifiedTime)));
         const todo = candidates.slice(-MAX_FILES);
+        const ign = ignored.length ? ` · Non reconnu${ignored.length > 1 ? 's' : ''} : ${ignored.slice(0, 3).join(', ')}${ignored.length > 3 ? '…' : ''}` : '';
         if (!todo.length) {
           const now = new Date().toISOString();
           this.lastSync = now;
           await SD.persist(Object.assign({}, raw, { syncedAt: now }), true);
-          this.set('done', 'ok', `À jour : aucun nouveau fichier dans « ${folderName} ».`, 'à jour', `Vérifié ${new Date().toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`);
+          this.set('done', ignored.length ? 'warn' : 'ok', `À jour : aucun nouveau fichier reconnu dans « ${folderName} ».`, ignored.length ? `${ignored.length} ignoré${ignored.length > 1 ? 's' : ''}` : 'à jour', `Vérifié ${new Date().toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${ign}`);
           return;
         }
         // téléchargement + analyse
@@ -166,7 +172,7 @@
             if (f.mimeType === MIME.sheet && !/\.csv$/i.test(name)) name += '.csv';
             if (kind === 'coach' && !/\.md$/i.test(name)) name += '.md';
             let part;
-            if (kind === 'macrofactor' || kind === 'trainai') {
+            if ((kind === 'macrofactor' || kind === 'trainai') && !/\.csv$/i.test(name) && !/csv/i.test(f.mimeType || '')) {
               XLSX = XLSX || (await SD.loadXLSX());
               part = P.parseFile({ name, buffer: bytes }, XLSX);
             } else {
@@ -189,7 +195,7 @@
         merged.syncedAt = new Date().toISOString();
         this.lastSync = merged.syncedAt;
         await SD.persist(merged);
-        this.set('done', errors.length ? 'warn' : 'ok', `${parts.length} fichier${parts.length > 1 ? 's' : ''} importé${parts.length > 1 ? 's' : ''} depuis « ${folderName} ».`, errors.length ? `${parts.length} importés, ${errors.length} erreurs` : `${parts.length} nouveaux`, errors.length ? errors.slice(0, 3).join(' · ') : `Données jusqu’au ${SD.fdM(merged.coverage.to)}`);
+        this.set('done', errors.length || ignored.length ? 'warn' : 'ok', `${parts.length} fichier${parts.length > 1 ? 's' : ''} importé${parts.length > 1 ? 's' : ''} depuis « ${folderName} » : ${parts.map((p) => p.fileName).slice(0, 3).join(', ')}${parts.length > 3 ? '…' : ''}.`, errors.length ? `${parts.length} importés, ${errors.length} erreurs` : `${parts.length} nouveaux`, (errors.length ? errors.slice(0, 3).join(' · ') : `Données jusqu’au ${SD.fdM(merged.coverage.to)}`) + ign);
       } catch (e) {
         const [msg, short] = this.explain(e);
         this.set('error', 'err', msg, short);

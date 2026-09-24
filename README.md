@@ -33,7 +33,7 @@ Tableau de bord personnel d'entraînement et de santé, dans l'esprit de Whoop e
 | Fichier | Reconnu comme |
 |---|---|
 | `HealthExport_….csv`, `Export_Apple_Sante_….csv` | Apple Santé (journalier) |
-| `MacroFactor…xlsx` | MacroFactor : export complet (historique), rapide (7 derniers jours, journal de séries avec RIR) ou granulaire |
+| `MacroFactor…xlsx` ou `MacroFactor…csv` | MacroFactor : export complet (historique), rapide (7 derniers jours, journal de séries avec RIR) ou granulaire (.xlsx ou .csv, un onglet par fichier, reconnu à ses en-têtes) |
 | `TrainAI…xlsx` | TrainAI |
 | Feuille Google ou CSV « Retours… » / « Journal… » | journal : `Date,Notes`, ou colonnes au choix `Date, Heure, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>` (plusieurs lignes par jour regroupées, #tags repérés dans le texte) |
 | Sous-dossier « Photos » | photos avant / après (`AAAA-MM-JJ_face.jpg`, `_profil`, `_dos`), lues à la demande, jamais copiées |
@@ -67,6 +67,7 @@ Le build produit `data/dashboard-data.js` (chargé par `index.html`), `dist/spor
 | Besoin de sommeil | base personnelle (médiane des nuits suivies d'un bon état HRV / FC repos, bornée 7 h – 8 h 30) + charge de la veille (max. 30 min) + rattrapage de 25 % du manque des 3 nuits (max. 45 min) | Watson et al., Sleep 2015 (≥ 7 h chez l'adulte) |
 | Volume par muscle | séries effectives = directes + ½ indirectes ; chiffres MacroFactor quand ils existent | Pelland et al. 2024 (comptage fractionné) |
 | e1RM | Epley sur la meilleure série de travail, poids d'un haltère | |
+| Séries (journal MacroFactor) | échauffements exclus ; dégressive ou myo-reps = 1 série, paire gauche / droite = 1 série, série à 0 rép. comptée | identique aux totaux MacroFactor (894 exercices-jours vérifiés) |
 | Leviers du physique | corrélations par semaine (≥ 26 semaines) entre habitudes et variation du poids, de la masse grasse, de la force | association, pas causalité |
 | Ratio aigu / chronique | moyennes exponentielles 7 j / 28 j, zone optimale 0,8–1,3 | Gabbett, BJSM 2016 |
 | Note globale | 6 piliers pondérés (récupération 20, sommeil 20, entraînement 20, nutrition 15, activité 15, corps 10) | |
