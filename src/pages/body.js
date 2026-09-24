@@ -1,4 +1,4 @@
-/* Page « Corps & nutrition » : poids + projection, composition, mensurations, énergie, macros, micronutriments, score nutrition. */
+/* Page « Nutrition » : apport vs cible et dépense, macros, protéines par kilo, score, micronutriments, balance. */
 (function () {
   'use strict';
   const SD = window.SD;
@@ -17,67 +17,37 @@
   ];
 
   const body = {
-    id: 'body', title: 'Corps & nutrition', sub: 'Trajectoire du poids vers ton objectif, composition corporelle et qualité de la nutrition.',
+    id: 'body', title: 'Nutrition', sub: 'Ce que tu manges face à ta cible et à ta dépense, la qualité des apports et ta régularité de suivi.',
     html() {
       const S = SD.S;
       const pk = SD.partialKcal();
       return `<div class="kpis" id="bd-k"></div>
-        ${card('c12', 'bd-weight', 'Poids & projection', '', '', { h: 'xtall' })}
-        ${card('c6', 'bd-fat', 'Masse grasse', '% estimé par la balance ou MacroFactor')}
-        ${card('c6', 'bd-lean', 'Masse maigre', 'Estimée par la balance connectée (Apple Santé)')}
-        ${card('c6', 'bd-meas', 'Mensurations', 'Mesures saisies dans MacroFactor', '<select class="fselect" id="bd-meas-sel" data-state="measure" aria-label="Mesure"></select>', { body: '<div class="chart short" id="bd-meas"></div><div class="tbl-view" hidden></div><div class="tbl-wrap tbl-scroll" id="bd-meas-tbl" style="margin-top:8px;max-height:200px"></div>' })}
         ${card('c6', 'bd-kcal', 'Énergie', '', `<label class="fsummary" for="bd-pk">Log partiel &lt; <b id="bd-pk-v">${nf(pk, 0)}</b> kcal</label><input type="range" id="bd-pk" min="0" max="2200" step="100" value="${pk}" style="width:110px;accent-color:var(--nutri)" aria-label="Seuil de journée partielle">`)}
         ${card('c6', 'bd-macro', 'Macronutriments', '', seg('macroView', [['g', 'Grammes'], ['pct', '% énergie']], S.macroView))}
         ${card('c6', 'bd-prot', 'Protéines par kilo', 'g de protéines par kg de poids tendance · bande = cible')}
         ${card('c6', 'bd-score', 'Score nutrition', 'Par jour loggé : calories vs cible (45 %), protéines vs cible (40 %), fibres vs 30 g (15 %)')}
-        ${card('c6', 'bd-micro', 'Micronutriments & hydratation', 'Moyenne des jours loggés vs repères de santé publique', '', { table: false, body: '<div id="bd-micro-b"></div>' })}
         ${card('c6', 'bd-bal', 'Balance énergétique', 'Calories ingérées − dépense estimée par MacroFactor')}
-        ${card('c6', 'bd-wd', 'Écart à la cible par jour', 'Moyenne (ingéré − cible MacroFactor) par jour de semaine')}`;
+        ${card('c6', 'bd-wd', 'Écart à la cible par jour', 'Moyenne (ingéré − cible MacroFactor) par jour de semaine')}
+        ${card('c12', 'bd-micro', 'Micronutriments & hydratation', 'Moyenne des jours loggés vs repères de santé publique', '', { table: false, body: '<div id="bd-micro-b" class="micro-grid"></div>' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
       const g = SD.gran(), keys = SD.bucketKeys(g);
-      const tw = F.days.filter((x) => isNum(x.trendW));
-      const a = tw[0], b = tw[tw.length - 1];
-      const wks = a && b ? (SD.nDays(a.d, b.d) - 1) / 7 : 0;
-      const rate = wks >= 1 ? (b.trendW - a.trendW) / wks : null;
-      const phase = (M.at(S.to) || {}).phase;
-      const rt = phase && cfg.weeklyRate && cfg.weeklyRate[phase];
-      const bf = F.days.filter((x) => isNum(x.bodyFat));
-      const allBody = M.raw.body.filter((x) => x.d <= S.to && isNum(x['Tour de taille']));
-      const waistL = allBody[allBody.length - 1], waistF = allBody.find((x) => x.d >= S.from);
       const lg = F.full.filter(SD.logged);
       const ns = pluck(lg, SD.scores.nutriScore);
       const wT = lg.filter((x) => x.tgt && isNum(x.tgt.kcal));
       const adh = wT.length ? (wT.filter((x) => Math.abs(x.kcal - x.tgt.kcal) <= 0.1 * x.tgt.kcal).length / wT.length) * 100 : null;
+      const kc = lg.length ? mean(pluck(lg, (x) => x.kcal)) : null, tk = wT.length ? mean(wT.map((x) => x.tgt.kcal)) : null;
+      const pkg = pluck(lg, (x) => (isNum(x.prot) && isNum(x.trendW) ? x.prot / x.trendW : null));
+      const [pLo] = cfg.proteinPerKg;
+      const balD = pluck(lg, (x) => (isNum(x.tdee) ? x.kcal - x.tdee : null));
       setHTML('bd-k', [
-        kpi({ label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: null, ctx: b ? `Source : ${b.trendSrc === 'MacroFactor' ? 'Trend Weight MacroFactor' : 'moyenne des pesées'}` : '', color: T.body }),
-        kpi({ label: 'Rythme', value: rate, digits: 2, unit: 'kg/sem', fmt: (v) => sgn(v, 2), ctx: phase ? `Phase ${esc(phase)}${rt ? ` · cible ${sgn(rt[0], 2)} à ${sgn(rt[1], 2)}` : ''}` : '', status: rt && isNum(rate) ? ' ' + (rate < rt[0] ? '<span class="status warn">Sous la cible</span>' : rate > rt[1] ? '<span class="status warn">Au-dessus</span>' : '<span class="status good">Dans la cible</span>') : '', color: T.body }),
-        kpi({ label: 'Masse grasse', value: bf.length ? bf[bf.length - 1].bodyFat : null, unit: '%', digits: 1, delta: bf.length >= 2 ? bf[bf.length - 1].bodyFat - bf[0].bodyFat : null, deltaFmt: (v) => `${sgn(v, 1)} pt sur la période`, deltaLabel: '', good: 'down', color: T.body }),
-        kpi({ label: 'Tour de taille', value: waistL ? waistL['Tour de taille'] : null, unit: 'cm', digits: 1, delta: waistL && waistF && waistF !== waistL ? waistL['Tour de taille'] - waistF['Tour de taille'] : null, deltaFmt: (v) => `${sgn(v, 1)} cm sur la période`, deltaLabel: '', good: 'down', ctx: waistL ? `Mesuré le ${esc(fdM(waistL.d))}` : '', color: T.body }),
-        kpi({ label: 'Score nutrition', value: ns.length ? mean(ns) : null, unit: '/100', ctx: `${lg.length} j loggés · ${isNum(adh) ? nf(adh, 0) + ' % à ±10 % de la cible' : 'pas de cible'}`, meter: ns.length ? mean(ns) : null, color: T.nutri }),
+        kpi({ label: 'Calories', value: kc, unit: 'kcal/j', ctx: tk ? `cible moyenne ${nf(tk, 0)} kcal · ${sgn(kc - tk, 0)} kcal` : 'jours loggés', color: T.nutri }),
+        kpi({ label: 'Protéines', value: pkg.length ? mean(pkg) : null, digits: 2, unit: 'g/kg', ctx: pkg.length ? `${nf((pkg.filter((v) => v >= pLo).length / pkg.length) * 100, 0)} % des jours ≥ ${nf(pLo, 1)} g/kg` : '', color: T.s[0] }),
+        kpi({ label: 'Balance', value: balD.length ? mean(balD) : null, unit: 'kcal/j', fmt: (v) => sgn(v, 0), ctx: 'vs dépense estimée par MacroFactor', color: T.nutri }),
+        kpi({ label: 'Régularité du suivi', value: F.full.length ? (lg.length / F.full.length) * 100 : null, unit: '%', ctx: `${lg.length} jours loggés sur ${F.full.length}${isNum(adh) ? ` · ${nf(adh, 0)} % à ±10 % de la cible` : ''}`, meter: F.full.length ? (lg.length / F.full.length) * 100 : null, color: T.nutri }),
+        kpi({ label: 'Score nutrition', value: ns.length ? mean(ns) : null, unit: '/100', ctx: 'calories, protéines et fibres vs cibles', meter: ns.length ? mean(ns) : null, color: T.nutri }),
       ].join(''));
-
-      const proj = SD.ui.weightChart('bd-weight', { projection: true });
-      setText('bd-weight-s', proj ? `Tendance des 28 derniers jours : ${sgn(proj.slopeWeek, 2)} kg/sem → ${nf(proj.end.y, 1)} kg le ${fdM(proj.end.d)} (± ${nf((proj.end.hi - proj.end.lo) / 2, 1)} kg, indicatif) · Maj + molette ou outil loupe pour zoomer` : 'Pesées et poids tendance · bandes = phases');
-
-      ts('bd-fat', { name: 'Masse grasse', get: (x) => x.bodyFat, color: T.body, unit: '%', digits: 1, type: 'line', gap: 21, onDay: SD.openDay });
-      ts('bd-lean', { name: 'Masse maigre', get: (x) => x.lean, color: T.act, unit: 'kg', digits: 1, type: 'line', gap: 21, onDay: SD.openDay });
-
-      // ---- mensurations
-      const measures = [...new Set(M.raw.body.flatMap((x) => Object.keys(x).filter((k) => k !== 'd')))];
-      if (!measures.includes(S.measure)) S.measure = measures.includes('Tour de taille') ? 'Tour de taille' : measures[0];
-      const msel = document.getElementById('bd-meas-sel');
-      msel.innerHTML = measures.map((m) => `<option${m === S.measure ? ' selected' : ''}>${esc(m)}</option>`).join('');
-      const mp = F.body.filter((x) => isNum(x[S.measure]));
-      chart('bd-meas', mp.length ? base({
-        grid: { left: 8, right: 14, top: 16, bottom: 8, containLabel: true },
-        tooltip: Object.assign(base().tooltip, { formatter: axisTip({ [S.measure]: (v) => nf(v, 1) + (/%/.test(S.measure) ? '' : ' cm') }) }),
-        xAxis: SD.xTime(), yAxis: yVal({ scale: true }),
-        series: [line(S.measure, mp.map((x) => [tms(x.d), x[S.measure]]), T.body, { showSymbol: true, symbolSize: 8 })],
-      }) : base(SD.emptyOpt('Aucune mesure sur la période')), () => ({ cols: ['Date', S.measure], rows: mp.map((x) => [fdM(x.d), nf(x[S.measure], 1)]) }));
-      const mrows = measures.map((m) => { const v = F.body.filter((x) => isNum(x[m])); return v.length ? { m, f: v[0][m], l: v[v.length - 1][m], n: v.length } : null; }).filter(Boolean);
-      setHTML('bd-meas-tbl', mrows.length ? `<table class="t"><thead><tr><th>Mesure</th><th class="num">Première</th><th class="num">Dernière</th><th class="num">Écart</th></tr></thead><tbody>${mrows.map((r) => `<tr><td>${esc(r.m)}</td><td class="num">${nf(r.f, 1)}</td><td class="num">${nf(r.l, 1)}</td><td class="num">${r.n > 1 ? sgn(r.l - r.f, 1) : '—'}</td></tr>`).join('')}</tbody></table>` : '');
 
       // ---- énergie
       const pk = SD.partialKcal();

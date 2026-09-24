@@ -93,7 +93,7 @@
       if (/^(HealthExport|Export_Apple_Sante)/i.test(t) && /csv/i.test(f.mimeType + t)) return 'health';
       if (/macrofactor/i.test(t) && (f.mimeType === MIME.xlsx || /\.xlsx$/i.test(t))) return 'macrofactor';
       if (/trainai/i.test(t) && (f.mimeType === MIME.xlsx || /\.xlsx$/i.test(t))) return 'trainai';
-      if (f.mimeType === MIME.sheet && /(retours|journal)/i.test(t)) return 'notes';
+      if (/(retours|journal)/i.test(t) && (f.mimeType === MIME.sheet || /csv/i.test(f.mimeType + t))) return 'notes';
       if (/_coach/i.test(t) && /(markdown|text)/i.test(f.mimeType || '') || /_coach.*\.md$/i.test(t)) return 'coach';
       if (/(bilan|biomarq|analyse|labo|sang)/i.test(t) && (/csv/i.test(f.mimeType + t) || f.mimeType === MIME.sheet)) return 'labs';
       return null;
@@ -198,6 +198,61 @@
       }
     },
   };
+
+  // ---------------------------------------------------------------- photos (lecture à la demande, jamais stockées)
+  const POSE = (t) => (/(face|front|avant)/i.test(t) ? 'Face' : /(profil|side|c[oô]t[ée])/i.test(t) ? 'Profil' : /(dos|back|arri[eè]re)/i.test(t) ? 'Dos' : 'Autre');
+  function photoDate(title, created) {
+    let m = String(title).match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+    if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = String(title).match(/(\d{2})[-_.](\d{2})[-_.](20\d{2})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return String(created || '').slice(0, 10) || null;
+  }
+  D.photoMeta = (title, created) => ({ d: photoDate(title, created), pose: POSE(title) });
+  D.photos = null;
+  D.photoState = 'idle';
+  D.listPhotos = async function () {
+    if (!this.mcp) { this.photoState = 'unavailable'; return []; }
+    if (this.photos) return this.photos;
+    this.photoState = 'loading';
+    try {
+      const folderName = (SD.M.cfg.drive && SD.M.cfg.drive.folder) || 'Suivi sportif';
+      const roots = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`);
+      if (!roots.length) { this.photoState = 'nofolder'; return []; }
+      const subs = (await this.list(`parentId = '${roots[0].id}' and mimeType = '${MIME.folder}'`)).filter((f) => /photo/i.test(f.title));
+      let files = [];
+      for (const sub of subs) {
+        const inside = await this.list(`parentId = '${sub.id}'`);
+        files = files.concat(inside.filter((f) => /^image\//.test(f.mimeType || '')));
+        for (const sub2 of inside.filter((f) => f.mimeType === MIME.folder)) files = files.concat((await this.list(`parentId = '${sub2.id}'`)).filter((f) => /^image\//.test(f.mimeType || '')));
+      }
+      this.photos = files.map((f) => Object.assign({ id: f.id, title: f.title, mimeType: f.mimeType }, D.photoMeta(f.title, f.createdTime || f.modifiedTime))).filter((p) => p.d).sort((a, b) => a.d.localeCompare(b.d));
+      this.photoState = subs.length ? 'ok' : 'nosub';
+      return this.photos;
+    } catch (e) { this.photoState = 'error'; this.photoError = this.explain(e)[0]; return []; }
+  };
+  const blobCache = new Map();
+  /** URL affichable d'une photo du Drive (HEIC converti en JPEG si besoin), gardée en mémoire le temps de la visite */
+  D.photoURL = async function (p) {
+    if (blobCache.has(p.id)) return blobCache.get(p.id);
+    const r = await this.call('download_file_content', { fileId: p.id });
+    const b64 = r && (r.content || r.data);
+    if (!b64) throw new Error('photo vide');
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    let blob = new Blob([bytes], { type: p.mimeType || 'image/jpeg' });
+    if (/hei[cf]/i.test(p.mimeType + p.title)) blob = await heicToJpeg(blob);
+    const url = URL.createObjectURL(blob);
+    blobCache.set(p.id, url);
+    return url;
+  };
+  async function heicToJpeg(blob) {
+    if (!window.heic2any) {
+      await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    }
+    const out = await window.heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
+    return Array.isArray(out) ? out[0] : out;
+  }
+  D.heicToJpeg = heicToJpeg;
 
   document.addEventListener('click', (e) => {
     if (e.target.closest('[data-sync]')) D.sync(true);

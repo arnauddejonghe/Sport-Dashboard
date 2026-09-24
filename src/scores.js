@@ -2,7 +2,7 @@
  *
  * Tout est calculé à partir de tes propres données, avec des règles explicites :
  *  - normes personnelles (médiane et écart robuste des 30 jours précédents) ;
- *  - scores quotidiens : Récupération (0-100), Charge (0-21), Sommeil (performance vs besoin),
+ *  - scores quotidiens : Récupération (0-100), Charge (0-100), Sommeil (performance vs besoin personnel),
  *    Nutrition, Activité, Note du jour ;
  *  - scores de période : 6 piliers + note globale (A+ … E) avec les leviers qui la tirent vers le haut ou le bas ;
  *  - charge aiguë / chronique (ACWR), alertes physiologiques, records personnels ;
@@ -43,7 +43,9 @@
 
   // Zones inspirées de Whoop
   const recZone = (v) => (!isNum(v) ? null : v >= 67 ? 'green' : v >= 34 ? 'yellow' : 'red');
-  const strainZone = (v) => (!isNum(v) ? null : v >= 18 ? 'max' : v >= 14 ? 'high' : v >= 10 ? 'mod' : 'light');
+  // Charge 0-100 : < 50 légère, 50-69 modérée, 70-84 élevée, ≥ 85 très élevée
+  const STRAIN_ZONES = [50, 70, 85];
+  const strainZone = (v) => (!isNum(v) ? null : v >= 85 ? 'max' : v >= 70 ? 'high' : v >= 50 ? 'mod' : 'light');
   const STRAIN_LABEL = { light: 'Légère', mod: 'Modérée', high: 'Élevée', max: 'Très élevée' };
 
   // ================================================================ enrichissement quotidien
@@ -52,7 +54,8 @@
   function enrich(M) {
     const days = M.days, cfg = M.cfg.targets;
 
-    // 1) Charge (strain) 0-21 : dépense active + surcharge mécanique de la muscu
+    // 1) Charge 0-100 : dépense active + surcharge mécanique de la muscu, échelle à rendement décroissant
+    //    (100 = effort maximal ; chaque point coûte plus que le précédent)
     for (const x of days) {
       let load = null;
       if (isNum(x.activeKcal)) load = x.activeKcal;
@@ -60,7 +63,7 @@
       if (load != null) {
         load += 3 * (x.strMin || 0);
         x.load = load;
-        x.strain = +(21 * (1 - Math.exp(-load / 1100))).toFixed(1);
+        x.strain = Math.round(100 * (1 - Math.exp(-load / 1100)));
       }
     }
 
@@ -78,25 +81,41 @@
       }
     }
 
-    // 3) Besoin de sommeil, performance, dette, régularité
-    const baseNeed = cfg.sleepHours;
+    // 3) Besoin de sommeil personnel, performance, dette, régularité
+    //    Base = médiane de tes nuits (90 jours précédents) suivies d'un bon état du système nerveux
+    //    (HRV haute et FC repos basse vs ta norme, sans tenir compte du sommeil), bornée à [7 h ; 8 h 30]
+    //    (7 h = minimum recommandé chez l'adulte, Watson et al., Sleep 2015). Repli : targets.sleepHours.
+    //    + charge de la veille au-delà de 50 (jusqu'à +30 min) + rattrapage de 25 % de la dette des 3 nuits (jusqu'à +45 min).
+    const good = days.map((x) => {
+      if (x.partial || !isNum(x.sleepH) || x.sleepH < 3) return null;
+      const zh = x.z.hrv, zr = x.z.rhr;
+      if (!isNum(zh) && !isNum(zr)) return null;
+      const a = isNum(zh) && isNum(zr) ? (0.6 * zh - 0.4 * zr) / Math.sqrt(0.52) : isNum(zh) ? zh : -zr;
+      return a >= 0.44 ? x.sleepH : null; // ~ tiers supérieur des jours
+    });
     for (let i = 0; i < days.length; i++) {
       const x = days[i];
       const prev = days[i - 1];
-      let need = baseNeed + (prev && isNum(prev.strain) ? Math.max(0, prev.strain - 10) * 0.06 : 0);
-      let debt = 0;
+      const w = [];
+      for (let j = Math.max(0, i - 90); j < i; j++) if (good[j] != null) w.push(good[j]);
+      const baseNeed = w.length >= 10 ? clamp(median(w), 7, 8.5) : cfg.sleepHours;
+      const adjStrain = prev && isNum(prev.strain) ? Math.min(0.5, Math.max(0, prev.strain - 50) * 0.01) : 0;
+      let debt3 = 0;
       for (let k = 1; k <= 3; k++) {
         const y = days[i - k];
-        if (y && isNum(y.sleepH) && isNum(y.sleepNeed)) debt += Math.max(0, y.sleepNeed - y.sleepH);
+        if (y && isNum(y.sleepH) && isNum(y.sleepBase)) debt3 += Math.max(0, y.sleepBase - y.sleepH);
       }
-      need += Math.min(1.5, 0.25 * debt);
-      x.sleepNeed = need;
-      if (isNum(x.sleepH)) x.sleepPerf = Math.min(100, (x.sleepH / need) * 100);
+      const adjDebt = Math.min(0.75, 0.25 * debt3);
+      x.sleepBase = baseNeed;
+      x.sleepBaseN = w.length;
+      x.sleepAdj = { strain: adjStrain, debt: adjDebt };
+      x.sleepNeed = baseNeed + adjStrain + adjDebt;
+      if (isNum(x.sleepH)) x.sleepPerf = Math.min(100, (x.sleepH / x.sleepNeed) * 100);
       const w7 = [];
       let debt7 = 0;
       for (let k = 0; k < 7; k++) {
         const y = days[i - k];
-        if (y && isNum(y.sleepH)) { w7.push(y.sleepH); if (isNum(y.sleepNeed)) debt7 += Math.max(0, y.sleepNeed - y.sleepH); }
+        if (y && isNum(y.sleepH)) { w7.push(y.sleepH); if (isNum(y.sleepBase)) debt7 += Math.max(0, y.sleepBase - y.sleepH); }
       }
       x.sleepDebt7 = w7.length >= 4 ? debt7 : null;
       x.sleepCons = w7.length >= 4 ? Math.max(0, 100 - sdev(w7) * 60 * 0.83) : null;
@@ -175,9 +194,10 @@
     if (parts.length < 2) return null;
     return sum(parts.map((p) => p[0] * p[1])) / sum(parts.map((p) => p[1]));
   }
+  /** Charge conseillée (centre de la fourchette, ±7) selon la récupération : 38 en zone rouge basse, 86 à 100 % */
   function strainTarget(rec) {
     if (!isNum(rec)) return null;
-    return clamp(8 + (rec / 100) * 10, 8, 18);
+    return clamp(38 + rec * 0.48, 38, 86);
   }
 
   // ================================================================ indice de force
@@ -510,11 +530,12 @@
     { id: 'auto_muscu', label: 'Séance de muscu', test: (x) => x.train },
     { id: 'auto_jambes', label: 'Séance jambes', test: (x) => x.split === 'Bas du corps' },
     { id: 'auto_velo', label: 'Vélo', test: (x) => x.w.some((w) => w.type === 'Vélo') },
-    { id: 'auto_charge', label: 'Charge ≥ 14', test: (x) => isNum(x.strain) && x.strain >= 14 },
+    { id: 'auto_charge', label: 'Charge ≥ 70', test: (x) => isNum(x.strain) && x.strain >= 70 },
     { id: 'auto_pas', label: 'Pas ≥ 10 000', test: (x) => isNum(x.steps) && x.steps >= 10000 },
     { id: 'auto_surplus', label: 'Surplus ≥ 300 kcal', test: (x) => SD.logged(x) && isNum(x.tdee) && x.kcal - x.tdee >= 300 },
     { id: 'auto_deficit', label: 'Déficit ≥ 300 kcal', test: (x) => SD.logged(x) && isNum(x.tdee) && x.tdee - x.kcal >= 300 },
     { id: 'auto_court', label: 'Nuit < 6 h 30', test: (x) => isNum(x.sleepH) && x.sleepH < 6.5 },
+    { id: 'auto_repas_tard', label: 'Dernier repas après 21 h', test: (x) => isNum(x.lastMeal) && x.lastMeal >= 21 * 60 },
   ];
 
   /**
@@ -581,7 +602,7 @@
 
   SD.scores = {
     phi, robust, enrich, nutriScore, dayScore, strainTarget, strengthIndex, periodScores, PILLARS, grade, verdict,
-    recZone, strainZone, STRAIN_LABEL, bioAge, bioAgeHistory, ageAt, biomarkers, BIOMARKERS, AUTO_TAGS, tagImpact, projection,
+    recZone, strainZone, STRAIN_LABEL, STRAIN_ZONES, bioAge, bioAgeHistory, ageAt, biomarkers, BIOMARKERS, AUTO_TAGS, tagImpact, projection,
     FRIEND_REF: (age, sex) => interp(FRIEND[sex || 'male'], age),
   };
 })();

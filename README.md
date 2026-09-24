@@ -6,15 +6,16 @@ Tableau de bord personnel d'entraînement et de santé, dans l'esprit de Whoop e
 
 | Page | Ce qu'on y lit |
 |---|---|
-| Aujourd'hui | Récupération, charge (0–21), sommeil et note du jour en anneaux ; biomarqueurs du jour face à ta plage normale ; charge aiguë / chronique ; sommeil des 14 dernières nuits vs besoin ; nutrition du jour ; saisie du journal |
-| Vue d'ensemble | Note globale de la période (A+ à E) et ses 6 piliers, leviers qui tirent vers le haut ou freinent, profil radar vs période précédente, bulletin hebdomadaire, calendrier, poids et projection jusqu'à l'échéance, insights |
-| Récupération | Score et zones, composantes (HRV, FC repos, respiration, sommeil), HRV / FC / respiration / SpO₂ avec plage normale, sommeil vs besoin, dette et régularité, corrélations, alertes physiologiques |
-| Entraînement | Charge quotidienne, ratio aigu / chronique, répartition des charges, volume par activité, durées, split détecté et par jour, heure de début, journal des séances avec la récupération du lendemain |
-| Force | Exercices clés, progression (e1RM, records, moyenne, tendance), fiche exercice, indice de force, force relative au poids de corps, records par mois, séries par muscle vs fourchette cible, carte de chaleur |
-| Corps & nutrition | Poids tendance et projection, masse grasse, masse maigre, mensurations, énergie (ingéré, cible, dépenses), macros, protéines par kilo, score nutrition, micronutriments vs repères de santé publique, balance |
-| Longévité | Âge biologique et rythme de vieillissement, contribution de chaque facteur (avec sources), historique, capacité cardiorespiratoire, 20+ biomarqueurs regroupés, bilans sanguins |
-| Journal | Humeur, énergie, stress, courbatures, douleurs, tags d'habitudes ; fil des entrées (journal, retours, coach, notes de séance) ; impact mesuré des habitudes sur la récupération |
-| Données | Synchronisation Google Drive, import manuel, sources, couverture, table journalière, méthode détaillée de chaque calcul |
+| Bilan quotidien | La dernière journée complète (ou le jour choisi) : note du jour en grand et ses 4 composantes, récupération, sommeil vs besoin personnel, charge 0–100, biomarqueurs face à ta norme, activité, nutrition, journal rapide |
+| Journal | Note libre, #tags (créables et masquables), ressenti facultatif ; fil des entrées (journal, feuille Drive, coach, notes de séance) ; impact des habitudes sur la récupération du lendemain |
+| Vue d'ensemble | Note globale de la période (A+ à E) et ses 6 piliers, leviers, profil radar, bulletin hebdomadaire, calendrier, insights |
+| Physique | Poids tendance et projection, masse grasse et maigre, les 19 mensurations avec écarts et symétrie, ratios (taille/hauteur, épaules/taille), photos avant / après, ce qui fait bouger poids, masse grasse et force |
+| Force | Exercices clés, progression (e1RM, records, tendance), RIR, indice de force, force relative, volume par muscle direct / indirect, fréquence, tonnage, carte de chaleur |
+| Entraînement | Charge 0–100, ratio aigu / chronique, répartition des charges, volume par activité, durées, split, heure de début, journal des séances |
+| Récupération | Score et zones, composantes, HRV / FC / respiration / SpO₂ avec plage normale, sommeil vs besoin, dette et régularité, explorateur de corrélations commenté, alertes |
+| Nutrition | Calories vs cible et dépense, macros, protéines par kilo, score, régularité du suivi, balance, micronutriments |
+| Longévité | Âge biologique et rythme de vieillissement, facteurs sourcés, 20+ biomarqueurs, bilans sanguins |
+| Données | Synchronisation Google Drive, import manuel, sources, couverture, méthode détaillée de chaque calcul |
 
 ## Lire les graphiques
 
@@ -32,13 +33,14 @@ Tableau de bord personnel d'entraînement et de santé, dans l'esprit de Whoop e
 | Fichier | Reconnu comme |
 |---|---|
 | `HealthExport_….csv`, `Export_Apple_Sante_….csv` | Apple Santé (journalier) |
-| `MacroFactor…xlsx` | MacroFactor (Full export) |
+| `MacroFactor…xlsx` | MacroFactor : export complet (historique), rapide (7 derniers jours, journal de séries avec RIR) ou granulaire |
 | `TrainAI…xlsx` | TrainAI |
-| Feuille Google « Retours… » ou « Journal… » | notes libres (`Date,Notes`) |
+| Feuille Google ou CSV « Retours… » / « Journal… » | journal : `Date,Notes`, ou colonnes au choix `Date, Heure, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>` (plusieurs lignes par jour regroupées, #tags repérés dans le texte) |
+| Sous-dossier « Photos » | photos avant / après (`AAAA-MM-JJ_face.jpg`, `_profil`, `_dos`), lues à la demande, jamais copiées |
 | `AAAA-MM-JJ_coach.md` (et `_vN`) | rapport coach : verdict, scores, points forts / faibles ; la version finale du jour l'emporte |
 | CSV ou feuille « Bilan… » / « Analyse… » | bilans sanguins `Date;Marqueur;Valeur;Unité;Min;Max` |
 
-Le journal est enregistré dans la base partagée de la page (synchronisé entre tes appareils), ou dans le navigateur hors de claude.ai.
+Le journal est enregistré dans la base partagée de la page (synchronisé entre tes appareils), ou dans le navigateur hors de claude.ai. Pour noter sans ouvrir la page, un raccourci Apple peut ajouter une ligne à la feuille « Journal » du Drive (par exemple via un webhook Make ou un script Google Apps Script) : elle est importée à la synchro suivante.
 
 ### Manuelle, dans le navigateur
 
@@ -61,8 +63,11 @@ Le build produit `data/dashboard-data.js` (chargé par `index.html`), `dist/spor
 |---|---|---|
 | Norme personnelle | médiane ± 1,4826 × écart absolu médian des 30 jours précédents (10 valeurs min.) | statistique robuste |
 | Récupération 0–100 | HRV 45 %, FC repos 30 %, sommeil 15 %, respiration 10 %, en écarts à ta norme, convertis par la loi normale | inspiré de Whoop |
-| Charge 0–21 | 21 × (1 − e^(−(calories actives + 3 × min de muscu) / 1 100)) | échelle logarithmique façon Whoop |
-| Besoin de sommeil | 7 h 30 + charge de la veille + rattrapage de dette (plafond 1 h 30) | |
+| Charge 0–100 | 100 × (1 − e^(−(calories actives + 3 × min de muscu) / 1 100)) : < 50 légère, 50–69 modérée, 70–84 élevée, ≥ 85 très élevée | échelle à rendement décroissant, inspirée de Whoop |
+| Besoin de sommeil | base personnelle (médiane des nuits suivies d'un bon état HRV / FC repos, bornée 7 h – 8 h 30) + charge de la veille (max. 30 min) + rattrapage de 25 % du manque des 3 nuits (max. 45 min) | Watson et al., Sleep 2015 (≥ 7 h chez l'adulte) |
+| Volume par muscle | séries effectives = directes + ½ indirectes ; chiffres MacroFactor quand ils existent | Pelland et al. 2024 (comptage fractionné) |
+| e1RM | Epley sur la meilleure série de travail, poids d'un haltère | |
+| Leviers du physique | corrélations par semaine (≥ 26 semaines) entre habitudes et variation du poids, de la masse grasse, de la force | association, pas causalité |
 | Ratio aigu / chronique | moyennes exponentielles 7 j / 28 j, zone optimale 0,8–1,3 | Gabbett, BJSM 2016 |
 | Note globale | 6 piliers pondérés (récupération 20, sommeil 20, entraînement 20, nutrition 15, activité 15, corps 10) | |
 | Âge biologique | risques relatifs de mortalité publiés, convertis en années par la loi de Gompertz (plafonds ±5 ans par facteur, ±12 au total) | Kodama JAMA 2009 et FRIEND (VO₂max), Zhang CMAJ 2016 (FC repos), Cappuccio Sleep 2010 (sommeil), Paluch Lancet Public Health 2022 (pas), Momma BJSM 2022 (musculation) |
@@ -87,9 +92,10 @@ src/parsers.js          lecture des exports (partagé navigateur / Node)
 src/core.js             modèle, filtres, helpers de graphiques (séries, bandes, tendances)
 src/scores.js           normes personnelles, scores, notes, âge biologique, biomarqueurs, impacts, projection
 src/insights.js         insights automatiques
-src/journal.js          journal (base partagée ou navigateur)
-src/drive.js            synchronisation Google Drive
-src/pages/*.js          les neuf pages
+src/journal.js          journal (base partagée ou navigateur, feuille Drive)
+src/muscles.js          exercices → muscles, volume direct / indirect
+src/drive.js            synchronisation Google Drive, photos à la demande
+src/pages/*.js          les dix pages
 src/app.js              navigation, filtres, chronologie, détail du jour, import, persistance
 src/styles.css          thème sombre
 scripts/build.js        build des données et du fichier unique

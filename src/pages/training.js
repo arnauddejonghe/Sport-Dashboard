@@ -9,7 +9,7 @@
     id: 'training', title: 'Entraînement', sub: 'Ta charge quotidienne, l’équilibre charge aiguë / chronique et la régularité de tes séances.',
     html() {
       return `<div class="kpis" id="tr-k"></div>
-        ${card('c12', 'tr-strain', 'Charge quotidienne (strain 0–21)', 'Calories actives + surcharge de la musculation, sur une échelle logarithmique façon Whoop · 10–13 modérée, 14–17 élevée, 18+ très élevée', '', { h: 'tall' })}
+        ${card('c12', 'tr-strain', 'Charge quotidienne (0–100)', 'Effort cardio (calories actives) + temps de musculation, à rendement décroissant : 100 = effort maximal · 50–69 modérée, 70–84 élevée, 85+ très élevée', '', { h: 'tall' })}
         ${card('c6', 'tr-acwr', 'Charge aiguë / chronique', 'Moyenne exponentielle 7 j ÷ 28 j · zone optimale 0,8–1,3, risque au-delà de 1,5 (Gabbett 2016)')}
         ${card('c6', 'tr-zones', 'Répartition des charges', '')}
         ${card('c12', 'tr-vol', 'Volume d’activité', '', '', { h: 'tall' })}
@@ -34,15 +34,15 @@
       const last = [...F.full].reverse().find((x) => isNum(x.acwr));
       setHTML('tr-k', [
         kpi({ label: 'Séances de muscu', value: sess, delta: prevDelta(sess, pSess), deltaDigits: 0, good: 'up', ctx: `${nf(sess / (F.len / 7), 1)} par semaine`, color: T.strain }),
-        kpi({ label: 'Charge moyenne', value: st, digits: 1, unit: '/ 21', delta: prevDelta(st, pSt), good: null, ctx: 'par jour', color: T.strain }),
+        kpi({ label: 'Charge moyenne', value: st, digits: 0, unit: '/ 100', delta: prevDelta(st, pSt), deltaDigits: 0, good: null, ctx: 'par jour', color: T.strain }),
         kpi({ label: 'Ratio aigu / chronique', value: last ? last.acwr : null, digits: 2, ctx: last ? `au ${fdM(last.d)}` : '', status: last ? ' ' + (last.acwr > 1.5 ? '<span class="status crit">Risque</span>' : last.acwr > 1.3 ? '<span class="status warn">Vigilance</span>' : last.acwr >= 0.8 ? '<span class="status good">Optimal</span>' : '<span class="status warn">Sous-charge</span>') : '', color: T.strain }),
         kpi({ label: 'Semaines à l’objectif', value: counts.length ? (hit / counts.length) * 100 : null, unit: '%', ctx: `${hit} / ${counts.length} semaines ≥ ${cfg.sessionsPerWeek} séances · série record ${best}`, meter: counts.length ? (hit / counts.length) * 100 : null, color: T.strain }),
         kpi({ label: 'Durée médiane', value: median(durs), fmt: fHM, delta: prevDelta(median(durs), median(pDurs)), deltaFmt: (v) => `${sgn(v, 0)} min`, good: null, ctx: `${durs.length} séances chronométrées`, color: T.strain }),
       ].join(''));
 
       // ---- charge
-      const zc = (v) => (v >= 18 ? '#0b5fb8' : v >= 14 ? T.strain : v >= 10 ? '#6cb8ff' : '#a9d3ff');
-      ts('tr-strain', { name: 'Charge', get: (x) => x.strain, color: T.strain, unit: '', digits: 1, type: 'bar', colorOf: (x) => zc(x.strain), baseKey: 'strain', yExtra: { min: 0, max: 21, interval: 7 }, onDay: SD.openDay,
+      const zc = (v) => (v >= 85 ? '#0b5fb8' : v >= 70 ? T.strain : v >= 50 ? '#6cb8ff' : '#a9d3ff');
+      ts('tr-strain', { name: 'Charge', get: (x) => x.strain, color: T.strain, unit: '', digits: 0, type: 'bar', colorOf: (x) => zc(x.strain), baseKey: 'strain', yExtra: { min: 0, max: 100, interval: 25 }, onDay: SD.openDay,
         foot: (x) => `${isNum(x.activeKcal) ? nf(x.activeKcal, 0) + ' kcal actives' : ''}${x.train ? ` · muscu ${fHM(x.strMin)}` : ''}${isNum(x.rec) ? ` · récup ${nf(x.rec, 0)} %` : ''}` });
 
       // ---- ACWR
@@ -59,7 +59,7 @@
       // ---- zones de charge (un comptage par jour n'a pas de sens : au minimum par semaine)
       const g = SD.gran(), keys = SD.bucketKeys(g);
       const gz = g === 'day' ? 'week' : g, kz = SD.bucketKeys(gz);
-      const ZN = [['Légère', (v) => v < 10, '#a9d3ff'], ['Modérée', (v) => v >= 10 && v < 14, '#6cb8ff'], ['Élevée', (v) => v >= 14 && v < 18, T.strain], ['Très élevée', (v) => v >= 18, '#0b5fb8']];
+      const ZN = [['Légère', (v) => v < 50, '#a9d3ff'], ['Modérée', (v) => v >= 50 && v < 70, '#6cb8ff'], ['Élevée', (v) => v >= 70 && v < 85, T.strain], ['Très élevée', (v) => v >= 85, '#0b5fb8']];
       const zz = kz.map((k2) => { const end = SD.bucketEnd(k2, gz); const v = F.full.filter((x) => x.d >= k2 && x.d <= end).map((x) => x.strain).filter(isNum); return ZN.map(([, f]) => v.filter(f).length); });
       setText('tr-zones-s', `Nombre de jours par niveau de charge et par ${SD.granUnit(gz)}`);
       chart('tr-zones', base({
@@ -140,7 +140,7 @@
         const vol = sum(pluck(x.ex, (e) => e.vol)), sets = sum(pluck(x.ex, (e) => e.sets));
         const notes = M.raw.notes.filter((n) => n.d === x.d);
         const nx = M.at(addD(x.d, 1));
-        return `<tr class="clickable" data-day="${x.d}"><td>${esc(fdate(x.d, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' }))}</td><td>${esc(x.w.map((w) => w.type).join(', '))}</td><td>${esc(x.split || '')}</td><td class="num">${esc(x.train ? fHM(x.strMin) : '')}</td><td class="num">${nf(x.strain, 1)}</td><td class="num" style="color:${nx && isNum(nx.rec) ? SD.recColor(nx.rec) : 'inherit'}">${nx && isNum(nx.rec) ? nf(nx.rec, 0) + ' %' : '—'}</td><td class="num">${x.ex.length || ''}</td><td class="num">${sets || ''}</td><td class="num">${vol ? nf(vol, 0) + ' kg' : ''}</td><td>${notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : ''}${x.ex.some((e) => e.pr) ? ' · <b style="color:var(--good)">PR</b>' : ''}</td></tr>`;
+        return `<tr class="clickable" data-day="${x.d}"><td>${esc(fdate(x.d, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' }))}</td><td>${esc(x.w.map((w) => w.type).join(', '))}</td><td>${esc(x.split || '')}</td><td class="num">${esc(x.train ? fHM(x.strMin) : '')}</td><td class="num">${nf(x.strain, 0)}</td><td class="num" style="color:${nx && isNum(nx.rec) ? SD.recColor(nx.rec) : 'inherit'}">${nx && isNum(nx.rec) ? nf(nx.rec, 0) + ' %' : '—'}</td><td class="num">${x.ex.length || ''}</td><td class="num">${sets || ''}</td><td class="num">${vol ? nf(vol, 0) + ' kg' : ''}</td><td>${notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : ''}${x.ex.some((e) => e.pr) ? ' · <b style="color:var(--good)">PR</b>' : ''}</td></tr>`;
       }).join('')}</tbody></table>` : '<div class="empty">Aucune séance sur la période.</div>');
     },
   };

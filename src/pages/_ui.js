@@ -42,7 +42,7 @@
     if (!x) return '';
     const rows = [];
     if (isNum(x.rec)) rows.push({ color: SD.recColor(x.rec), value: nf(x.rec, 0) + ' %', name: 'récupération' });
-    if (isNum(x.strain)) rows.push({ color: T.strain, value: nf(x.strain, 1), name: 'charge' });
+    if (isNum(x.strain)) rows.push({ color: T.strain, value: nf(x.strain, 0), name: 'charge' });
     if (isNum(x.sleepH)) rows.push({ color: T.sleep, value: fH(x.sleepH), name: 'sommeil' + (isNum(x.sleepPerf) ? ` (${nf(x.sleepPerf, 0)} %)` : '') });
     for (const w of x.w) rows.push({ color: typeColor(w.type), box: true, value: w.min != null ? fHM(w.min) : '—', name: w.type + (x.split && STRENGTH.has(w.type) ? ` · ${x.split}` : '') });
     if (isNum(x.steps)) rows.push({ color: T.act, value: nf(x.steps, 0), name: 'pas' });
@@ -125,7 +125,7 @@
   const CAL = {
     score: ['Note du jour', (x) => SD.scores.dayScore(x), (v) => nf(v, 0) + '/100', 'mean', 'score'],
     rec: ['Récupération', (x) => x.rec, (v) => nf(v, 0) + ' %', 'mean', 'rec'],
-    strain: ['Charge', (x) => x.strain, (v) => nf(v, 1), 'mean', 'strain'],
+    strain: ['Charge', (x) => x.strain, (v) => nf(v, 0) + '/100', 'mean', 'strain'],
     sleepH: ['Sommeil', (x) => x.sleepH, fH, 'mean', 'sleep'],
     steps: ['Pas', (x) => x.steps, (v) => nf(v, 0), 'mean', 'act'],
     train: ['Séances de muscu', (x) => (SD.F.strengthDays.has(x.d) ? 1 : null), (v) => nf(v, 0), 'sum', 'strain'],
@@ -206,17 +206,17 @@
       tooltip: Object.assign(base().tooltip, { formatter: (ps) => { const v = ps && ps[0] && ps[0].value; return v ? SD.ui.dayTip(dstr(v[0]), 'Récupération (haut) et charge (bas) alignées') : ''; } }),
       title: [
         { text: 'RÉCUPÉRATION', left: 44, top: 4, textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C, fontWeight: 700 } },
-        { text: 'CHARGE (0–21)', left: 44, top: '53%', textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C, fontWeight: 700 } },
+        { text: 'CHARGE (0–100)', left: 44, top: '53%', textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C, fontWeight: 700 } },
       ],
       toolbox: SD.toolbox(),
       dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }],
       xAxis: [xa(0, false), xa(1, true)],
-      yAxis: [yVal({ gridIndex: 0, min: 0, max: 100, interval: 50 }), yVal({ gridIndex: 1, min: 0, max: 21, interval: 7 })],
+      yAxis: [yVal({ gridIndex: 0, min: 0, max: 100, interval: 50 }), yVal({ gridIndex: 1, min: 0, max: 100, interval: 50 })],
       series: [
         { name: 'Récupération', type: 'bar', xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 12, data: days.filter((x) => isNum(x.rec)).map((x) => ({ value: [tms(x.d), x.rec], itemStyle: { color: SD.recColor(x.rec), borderRadius: [3, 3, 0, 0] } })) },
         { name: 'Charge', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 12, data: days.filter((x) => isNum(x.strain)).map((x) => ({ value: [tms(x.d), x.strain], itemStyle: { color: T.strain, borderRadius: [3, 3, 0, 0], opacity: 0.9 } })) },
       ],
-    }), () => ({ cols: ['Date', 'Récupération (%)', 'Charge'], rows: days.map((x) => [fdM(x.d), nf(x.rec, 0), nf(x.strain, 1)]) }));
+    }), () => ({ cols: ['Date', 'Récupération (%)', 'Charge'], rows: days.map((x) => [fdM(x.d), nf(x.rec, 0), nf(x.strain, 0)]) }));
     c && c.on('click', (p) => p.value && SD.openDay(dstr(p.value[0])));
   }
 

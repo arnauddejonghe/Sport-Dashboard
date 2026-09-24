@@ -258,6 +258,7 @@
   const DEFAULT_STATE = {
     page: 'today', preset: '90j', from: null, to: null, day: null, wds: [0, 1, 2, 3, 4, 5, 6], dayKind: 'all', types: null, gran: 'auto',
     ex: null, exMetric: 'e1', corrX: 'sleepH', corrY: 'rec', corrLag: 0, measure: 'Tour de taille', macroView: 'g',
+    musSel: null, lever: 'trend', photoPose: 'all', photoMode: 'side',
     partialKcal: null, calMetric: 'score', analysis: { ma7: true, ma28: false, trend: false, band: true, minmax: false }, filtersOpen: false,
   };
   const S = (SD.S = JSON.parse(JSON.stringify(DEFAULT_STATE)));
@@ -696,7 +697,7 @@
   // ================================================================ métriques (explorateur & matrice)
   const METRICS = {
     rec: { label: 'Récupération', unit: '%', d: 0, get: (x) => x.rec },
-    strain: { label: 'Charge', unit: '/21', d: 1, get: (x) => x.strain },
+    strain: { label: 'Charge', unit: '/100', d: 0, get: (x) => x.strain },
     sleepH: { label: 'Sommeil', unit: 'h', d: 1, get: (x) => x.sleepH },
     sleepPerf: { label: 'Performance sommeil', unit: '%', d: 0, get: (x) => x.sleepPerf },
     hrv: { label: 'HRV (indicative)', unit: 'ms', d: 0, get: (x) => x.hrv },

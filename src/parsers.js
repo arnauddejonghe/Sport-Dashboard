@@ -89,7 +89,7 @@
   const mid = (rg) => (rg ? (rg.lo + rg.hi) / 2 : null);
 
   /** CSV tolérant : gère les champs partiellement quotés comme `"Active Calories" (kcal)`. */
-  function parseCSV(text) {
+  function parseCSV(text, sep = ',') {
     if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
     const rows = [];
     let row = [], field = '', inQ = false;
@@ -100,7 +100,7 @@
           if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false;
         } else field += c;
       } else if (c === '"') inQ = true;
-      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === sep) { row.push(field); field = ''; }
       else if (c === '\n' || c === '\r') {
         if (c === '\r' && text[i + 1] === '\n') i++;
         row.push(field); field = '';
@@ -245,17 +245,46 @@
 
   // ---------------------------------------------------------------- Journal libre (CSV Date,Notes)
 
+  /** Tags d'une cellule ou d'un texte : « #dj #alcool », « dj, alcool » -> [{id, label}] */
+  const slugTag = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  function tagsFrom(cell, fromText) {
+    const out = [];
+    const src = String(cell || '');
+    const parts = fromText ? (src.match(/#[\p{L}\p{N}_-]+/gu) || []).map((x) => x.slice(1)) : src.split(/[,;#\n]+/);
+    for (const p of parts) { const label = p.trim().replace(/_/g, ' '); const id = slugTag(label); if (id && !out.some((o) => o.id === id)) out.push({ id, label }); }
+    return out;
+  }
+
+  /**
+   * Journal libre (feuille Google ou CSV) : « Date,Notes » ou colonnes au choix parmi
+   * Date, Heure, Note/Notes/Texte, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>.
+   * Plusieurs lignes le même jour (raccourci Apple, formulaire) sont regroupées.
+   */
   function parseNotesCSV(text, fileName) {
-    const rows = parseCSV(text);
+    const first = text.split(/\r?\n/)[0];
+    const rows = parseCSV(text, (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',');
     const hdr = rows[0].map(normHeader);
-    const iD = hdr.indexOf('date'), iN = hdr.findIndex((h) => h.startsWith('note'));
+    const find = (re) => hdr.findIndex((h) => re.test(h));
+    const iD = find(/^(date|jour)$/), iN = find(/^(notes?|texte|commentaires?|ressenti)$/), iTg = find(/^(tags?|[ée]tiquettes?)$/);
+    const SC = { mood: find(/^humeur|^mood/), energy: find(/^[ée]nergie|^energy/), stress: find(/^stress/), soreness: find(/^courbature|^soreness/) };
+    const pains = hdr.map((h, i) => [h, i]).filter(([h]) => /^douleur/.test(h)).map(([h, i]) => [h.replace(/^douleurs?\s*/, '').replace(/^./, (c) => c.toUpperCase()) || 'Générale', i]);
     const notes = [];
+    const byDay = {};
     for (let r = 1; r < rows.length; r++) {
-      const d = toISODate(rows[r][iD]);
-      const t = (rows[r][iN] || '').trim();
-      if (d && t) notes.push({ d, src: 'journal', text: t });
+      const row = rows[r];
+      const d = toISODate(row[iD]);
+      if (!d) continue;
+      const t = iN >= 0 ? String(row[iN] || '').trim() : '';
+      if (t) notes.push({ d, src: 'journal', text: t });
+      const e = byDay[d] || (byDay[d] = { d, texts: [], tags: [], pain: {} });
+      if (t) e.texts.push(t);
+      for (const tg of (iTg >= 0 ? tagsFrom(row[iTg]) : []).concat(tagsFrom(t, true))) if (!e.tags.some((x) => x.id === tg.id)) e.tags.push(tg);
+      for (const [k, i] of Object.entries(SC)) { const v = i >= 0 ? num(row[i]) : null; if (v != null) e[k] = Math.max(1, Math.min(5, Math.round(v))); }
+      for (const [site, i] of pains) { const v = num(row[i]); if (v != null) e.pain[site] = Math.max(0, Math.min(10, v)); }
     }
-    return { kind: 'notes', fileName, notes };
+    const jentries = Object.values(byDay).filter((e) => e.texts.length || e.tags.length || Object.keys(e.pain).length || ['mood', 'energy', 'stress', 'soreness'].some((k) => e[k] != null))
+      .map((e) => ({ d: e.d, text: e.texts.join(' · '), tags: e.tags.map((x) => x.id), tagLabels: Object.fromEntries(e.tags.map((x) => [x.id, x.label])), mood: e.mood, energy: e.energy, stress: e.stress, soreness: e.soreness, pain: e.pain, src: 'feuille' }));
+    return { kind: 'notes', fileName, notes, jentries };
   }
 
   // ---------------------------------------------------------------- Rapports du coach (.md)
@@ -327,7 +356,7 @@
   /** CSV « Date,Marqueur,Valeur,Unité,Min,Max » (séparateur , ou ;) */
   function parseLabsCSV(text, fileName) {
     const sep = (text.split(/\r?\n/)[0].match(/;/g) || []).length > (text.split(/\r?\n/)[0].match(/,/g) || []).length ? ';' : ',';
-    const rows = sep === ';' ? parseCSV(text.replace(/;/g, ',')) : parseCSV(text);
+    const rows = parseCSV(text, sep);
     const hdr = rows[0].map(normHeader);
     const col = (...names) => hdr.findIndex((h) => names.some((n) => h.startsWith(n)));
     const iD = col('date'), iN = col('marqueur', 'biomarqueur', 'marker', 'analyte', 'paramètre', 'parametre');
@@ -395,9 +424,15 @@
   const GOAL_FR = { 'Weight Loss': 'Sèche', 'Weight Gain': 'Prise de masse', Maintenance: 'Maintien' };
   const WEEKDAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+  // Export complet (« FULL EXPORT »), rapide (« Quick Export », 7 derniers jours) ou granulaire (onglets au choix)
+  const MF_SHEETS = ['Calories & Macros', 'Scale Weight', 'Weight Trend', 'Quick Export', 'Workout Log', 'Food Log', 'Muscle Groups - Sets', 'Expenditure', 'Body Metrics'];
   function isMacroFactor(wb) {
-    return !!(wb.Sheets['Calories & Macros'] || wb.Sheets['Scale Weight'] || wb.Sheets['Weight Trend']);
+    return MF_SHEETS.some((s) => !!wb.Sheets[s]);
   }
+  // Haltères : MacroFactor note le poids des deux haltères dans le journal de séries et la meilleure série,
+  // mais un seul haltère dans « charge max » et « 1-RM ». On ramène tout au poids d'un haltère.
+  const isPairDB = (n) => /dumbbell/i.test(n) && !/(single|one)[ -]?arm/i.test(n);
+  const cleanExName = (n) => String(n || '').replace(/\s*∈.*$/, '').replace(/\s*\(Copy\)\s*$/i, '').trim();
 
   function parseMacroFactor(wb, XLSX, fileName) {
     const days = {};
@@ -429,6 +464,50 @@
           const v = i >= 0 ? mi[r][i] : null;
           if (typeof v === 'number') days[d][k] = r1(v, 1);
         }
+      }
+    }
+    // Export rapide : une ligne par jour (dépense, poids, tendance, nutrition, pas, micronutriments)
+    const qe = sheetRows(wb, XLSX, 'Quick Export');
+    if (qe) {
+      const h = qe[0];
+      const col = { tdee: /^Expenditure/i, trend: /^Trend Weight/i, weight: /^Weight/i, kcal: /^Calories/i, prot: /^Protein/i, fat: /^Fat \(/i, carb: /^Carbs/i,
+        mfSteps: /^Steps/i, alcohol: /^Alcohol/i, fiber: /^Fiber/i, sodium: /^Sodium/i, sugar: /^Sugars? \(/i, caffeine: /^Caffeine/i, water: /^Water/i };
+      const idx = Object.fromEntries(Object.entries(col).map(([k, re]) => [k, colIndex(h, re)]));
+      for (let r = 1; r < qe.length; r++) {
+        const d = toISODate(qe[r][0], XLSX);
+        if (!d) continue;
+        const v = (k) => (idx[k] >= 0 && typeof qe[r][idx[k]] === 'number' ? qe[r][idx[k]] : null);
+        const o = D(d);
+        if (v('tdee') != null) o.tdee = r1(v('tdee'), 0);
+        if (v('trend') != null) o.trend = r1(v('trend'), 2);
+        if (v('weight') != null) o.weight = r1(v('weight'), 2);
+        if (v('mfSteps') != null) o.mfSteps = v('mfSteps');
+        if (v('kcal') != null) {
+          Object.assign(o, { kcal: r1(v('kcal'), 0), prot: r1(v('prot')), fat: r1(v('fat')), carb: r1(v('carb')) });
+          for (const k of ['alcohol', 'fiber', 'sodium', 'sugar', 'caffeine', 'water']) if (v(k) != null) o[k] = r1(v(k), 1);
+        }
+      }
+    }
+    // Journal alimentaire : heure du dernier repas (et totaux du jour si l'export n'a pas de résumé quotidien)
+    const fl = sheetRows(wb, XLSX, 'Food Log');
+    if (fl) {
+      const h = fl[0];
+      const iD = colIndex(h, /^Date$/i), iT = colIndex(h, /^Time$/i);
+      const sumCols = { kcal: /^Calories/i, prot: /^Protein/i, fat: /^Fat \(/i, carb: /^Carbs/i, fiber: /^Fiber/i, alcohol: /^Alcohol/i, sodium: /^Sodium/i, sugar: /^Sugars? \(/i, caffeine: /^Caffeine/i };
+      const sIdx = Object.fromEntries(Object.entries(sumCols).map(([k, re]) => [k, colIndex(h, re)]));
+      const tot = {};
+      for (let r = 1; r < fl.length; r++) {
+        const d = toISODate(fl[r][iD], XLSX);
+        if (!d) continue;
+        const t = iT >= 0 ? String(fl[r][iT] || '').match(/^(\d{1,2}):(\d{2})/) : null;
+        if (t) { const m = +t[1] * 60 + +t[2]; const o = D(d); if (o.lastMeal == null || m > o.lastMeal) o.lastMeal = m; }
+        const a = tot[d] || (tot[d] = {});
+        for (const [k, i] of Object.entries(sIdx)) if (i >= 0 && typeof fl[r][i] === 'number') a[k] = (a[k] || 0) + fl[r][i];
+      }
+      // le résumé de l'export rapide laisse parfois les calories vides : on complète jour par jour depuis le journal alimentaire
+      for (const [d, a] of Object.entries(tot)) if (a.kcal != null && D(d).kcal == null) {
+        const o = D(d);
+        for (const [k, v] of Object.entries(a)) o[k] = r1(v, k === 'kcal' ? 0 : 1);
       }
     }
     // Poids balance
@@ -489,7 +568,7 @@
     const exercises = {};
     const addEx = (sheet, key, digits) => {
       for (const { d, name, v } of wide(sheetRows(wb, XLSX, sheet), XLSX)) {
-        const n = name.replace(/\s*\(Copy\)\s*$/i, '').trim();
+        const n = cleanExName(name);
         const k = d + '|' + n;
         const o = exercises[k] || (exercises[k] = { d, n, s: 'MF' });
         o[key] = o[key] == null ? r1(v, digits) : Math.max(o[key], r1(v, digits));
@@ -501,6 +580,38 @@
     addEx('Exercises - Total Sets', 'sets', 0);
     addEx('Exercises - Total Reps', 'reps', 0);
     addEx('Exercises - Best Set Reps', 'br', 0);
+    addEx('Exercises - Best Set Volume', 'bsv', 1);
+    // e1RM homogène sur toutes les sources : Epley sur la meilleure série (poids d'un haltère), comme TrainAI.
+    // Le « 1-RM » de MacroFactor est lissé par l'app et ne se compare pas à une série réelle.
+    for (const o of Object.values(exercises)) {
+      if (o.bsv > 0 && o.br > 0) { const w = o.bsv / o.br / (isPairDB(o.n) ? 2 : 1); o.e1 = r1(epley(w, o.br), 1); }
+      delete o.bsv;
+    }
+    // Journal de séries (export rapide ou granulaire) : séries de travail uniquement, RIR ; prioritaire sur les onglets agrégés
+    const wl = sheetRows(wb, XLSX, 'Workout Log');
+    if (wl) {
+      const h = wl[0];
+      const iD = colIndex(h, /^Date$/i), iE = colIndex(h, /^Exercise$/i), iT = colIndex(h, /^Set Type/i), iW = colIndex(h, /^Weight/i), iR = colIndex(h, /^Reps/i), iRir = colIndex(h, /^RIR/i);
+      const logEx = {};
+      for (let r = 1; r < wl.length; r++) {
+        const d = toISODate(wl[r][iD], XLSX);
+        const n = cleanExName(wl[r][iE]);
+        if (!d || !n || /warm/i.test(String(wl[r][iT] || ''))) continue;
+        const w = typeof wl[r][iW] === 'number' ? wl[r][iW] : 0, reps = typeof wl[r][iR] === 'number' ? wl[r][iR] : 0;
+        if (!reps) continue;
+        const k = d + '|' + n;
+        const o = logEx[k] || (logEx[k] = { d, n, sets: 0, reps: 0, vol: 0, hw: 0, br: 0, bsv: 0, bw: 0, rirs: [] });
+        const wph = w / (isPairDB(n) ? 2 : 1);
+        o.sets += 1; o.reps += reps; o.vol += w * reps; o.hw = Math.max(o.hw, wph);
+        if (w * reps > o.bsv) { o.bsv = w * reps; o.br = reps; o.bw = wph; }
+        if (iRir >= 0 && typeof wl[r][iRir] === 'number') o.rirs.push(wl[r][iRir]);
+      }
+      for (const [k, o] of Object.entries(logEx)) {
+        exercises[k] = { d: o.d, n: o.n, s: 'MF', sets: o.sets, reps: o.reps, vol: r1(o.vol, 0), hw: r1(o.hw, 1), br: o.br,
+          e1: o.bw > 0 ? r1(epley(o.bw, o.br), 1) : null,
+          rir: o.rirs.length ? r1(o.rirs.reduce((a, b) => a + b, 0) / o.rirs.length, 1) : null, fail: o.rirs.filter((x) => x === 0).length };
+      }
+    }
 
     // Mensurations
     const body = [];
@@ -644,6 +755,8 @@
       const first = text.split(/\r?\n/)[0].toLowerCase();
       if (/(marqueur|marker|analyte|param[eè]tre)/.test(first) && /(valeur|value|r[ée]sultat)/.test(first)) return parseLabsCSV(text, name);
       if (/^"?date"?\s*[,;]\s*"?notes?"?/.test(first)) return parseNotesCSV(text, name);
+      // journal enrichi (raccourci, formulaire) : date + note / tags / humeur…, sans colonnes Apple Santé
+      if (/^"?(date|jour)"?\s*[,;]/.test(first) && /(notes?|texte|tags?|humeur|[ée]nergie|courbature|ressenti)"?\s*([,;]|$)/.test(first) && !/steps|\(kcal\)|\(bpm\)/.test(first)) return parseNotesCSV(text, name);
       if (first.startsWith('date,') || first.startsWith('"date"')) return parseHealthCSV(text, name);
       throw new Error(`${name} : CSV non reconnu (attendu : Health Export, journal Date,Notes ou bilan Date,Marqueur,Valeur)`);
     }
@@ -714,10 +827,11 @@
         if (v.trend != null) day.trend = v.trend;
         if (v.tdee != null) day.tdee = v.tdee;
         if (v.kcal != null) {
-          for (const k of ['kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine']) if (v[k] != null) day[k] = v[k];
+          for (const k of ['kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'water']) if (v[k] != null) day[k] = v[k];
           day.nutriSrc = 'MF';
         }
         if (day.steps == null && v.mfSteps != null) day.steps = v.mfSteps;
+        if (v.lastMeal != null) day.lastMeal = v.lastMeal;
       }
       if (mf.exercises.length) { const r = span(mf.exercises); exercises = exercises.filter(outside(r)).concat(mf.exercises); }
       if (mf.muscles.length) { const r = span(mf.muscles); muscles = muscles.filter(outside(r)).concat(mf.muscles); }
@@ -738,6 +852,8 @@
     }
 
     // 4) Journal libre, rapports du coach, bilans sanguins
+    const jsheet = {};
+    for (const p of parts.filter((x) => x.kind === 'notes')) for (const e of p.jentries || []) jsheet[e.d] = e;
     for (const p of parts.filter((x) => x.kind === 'notes')) {
       const seenN = new Set(notes.map((n) => n.d + '|' + n.text));
       for (const n of p.notes) if (!seenN.has(n.d + '|' + n.text)) notes.push(n);
@@ -858,6 +974,7 @@
       body: body.sort((a, b) => a.d.localeCompare(b.d)),
       phases: phases.sort((a, b) => a.start.localeCompare(b.start)),
       notes: notes.sort((a, b) => a.d.localeCompare(b.d)),
+      jsheet: Object.values(jsheet).sort((a, b) => a.d.localeCompare(b.d)),
       coach,
       labs,
       sessionStarts,
@@ -891,7 +1008,7 @@
     const hR = covered('health'), mR = covered('macrofactor'), tR = covered('trainai');
 
     const byDate = new Map(base.days.map((x) => [x.d, Object.assign({}, x)]));
-    const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'nutriSrc'];
+    const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'water', 'lastMeal', 'nutriSrc'];
     for (const n of add.days) {
       const old = byDate.get(n.d) || { d: n.d };
       let merged;
@@ -928,19 +1045,21 @@
       workouts: workouts.sort((a, b) => a.d.localeCompare(b.d)),
       exercises: base.exercises.filter(keepEx).concat(add.exercises).sort((a, b) => a.d.localeCompare(b.d) || a.n.localeCompare(b.n)),
       muscles: mR ? base.muscles.filter((m) => !inR(m.d, mR)).concat(add.muscles).sort((a, b) => a.d.localeCompare(b.d)) : base.muscles,
-      targets: kinds.has('macrofactor') ? add.targets : base.targets,
-      body: kinds.has('macrofactor') ? add.body : base.body,
-      phases: kinds.has('macrofactor') ? add.phases.concat(base.phases.filter((p) => p.src === 'config')) : base.phases,
+      // un export MacroFactor partiel (rapide, granulaire) ne contient ni cibles, ni mensurations, ni phases : on garde l'existant
+      targets: add.targets && add.targets.length ? add.targets : base.targets,
+      body: add.body && add.body.length ? add.body : base.body,
+      phases: add.phases && add.phases.some((p) => p.src !== 'config') ? add.phases.concat(base.phases.filter((p) => p.src === 'config')) : base.phases,
       notes: Array.from(notes.values()).sort((a, b) => a.d.localeCompare(b.d)),
       coach: mergeCoach(base.coach || [], add.coach || []),
       labs: mergeLabs(base.labs || [], add.labs || []),
+      jsheet: (() => { const m = new Map((base.jsheet || []).map((e) => [e.d, e])); for (const e of add.jsheet || []) m.set(e.d, e); return [...m.values()].sort((a, b) => a.d.localeCompare(b.d)); })(),
       sessionStarts: tR ? base.sessionStarts.filter((s) => !inR(s.d, tR)).concat(add.sessionStarts) : base.sessionStarts,
     });
   }
 
   return {
     parseCSV, parseHealthCSV, parseNotesCSV, parseCoachMD, parseLabsCSV, parseMacroFactor, parseTrainAI, parseFile, mergeParsed, overlayDataset,
-    coachFileInfo, cleanSensitive, setPrivacyTerms,
+    coachFileInfo, cleanSensitive, setPrivacyTerms, tagsFrom, slugTag,
     isMacroFactor, isTrainAI, exportDateFromName,
     _internal: { num, range, duration, toISODate, epley },
   };

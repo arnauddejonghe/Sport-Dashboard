@@ -44,11 +44,13 @@
       return `${card('c12', 'st-mult', 'Exercices clés', 'e1RM estimé sur la période · clic pour afficher la progression', '', { table: false, body: '<div class="multiples" id="st-mult-b"></div>' })}
         ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { h: 'tall' })}
         <section class="card c4"><div class="card-h"><div><h2 id="st-card-t">Fiche exercice</h2><p class="sub" id="st-card-s"></p></div></div><div id="st-card-b"></div></section>
-        ${card('c6', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire')}
-        ${card('c6', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés')}
-        ${card('c6', 'st-pr', 'Records personnels', 'Nombre de records (e1RM au-dessus de tout l’historique de l’exercice) par mois')}
-        ${card('c6', 'st-mus', 'Séries par muscle et par semaine', 'Groupes MacroFactor (séries fractionnées incluses) · bande = fourchette cible', '', { h: 'tall' })}
-        ${card('c12', 'st-heat', 'Carte de chaleur des muscles', 'Séries par semaine et par groupe musculaire')}
+        ${card('c4', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire')}
+        ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés')}
+        ${card('c4', 'st-pr', 'Records personnels', 'Records (e1RM au-dessus de tout l’historique de l’exercice) par mois')}
+        ${card('c6', 'st-mus', 'Volume par muscle', '', '', { h: 'tall' })}
+        ${card('c6', 'st-musw', 'Évolution par semaine', '', `<select class="fselect" id="st-mus-sel" data-state="musSel" aria-label="Muscle"></select>`, { h: 'tall' })}
+        ${card('c12', 'st-must', 'Détail par muscle', 'Moyennes par semaine sur la période · effectives = directes + apport indirect · fréquence = jours par semaine où le muscle est travaillé en direct', '', { table: false, body: '<div class="tbl-wrap" id="st-must-b"></div>' })}
+        ${card('c12', 'st-heat', 'Carte de chaleur des muscles', 'Séries effectives par semaine et par groupe musculaire')}
         ${card('c12', 'st-tbl', 'Tous les exercices', 'Clic sur une ligne pour afficher la progression · clic sur un en-tête pour trier', '', { table: false, body: '<div class="tbl-wrap tbl-scroll" id="st-tbl-b"></div>' })}`;
     },
     update() {
@@ -107,7 +109,8 @@
             for (const [k2, l2, u2, d2] of EX_METRICS) if (e && isNum(e[k2])) r.push({ color: k2 === mk ? T.strain : T.axis, value: nf(e[k2], d2) + (u2 ? ' ' + u2 : ''), name: l2 });
             const tw = M.at(e.d);
             if (e && isNum(e.e1) && tw && isNum(tw.trendW)) r.push({ color: T.body, value: nf(e.e1 / tw.trendW, 2) + ' × PDC', name: 'force relative' });
-            return tipBox(fdL(e.d) + (e.pr ? ' · record' : ''), r, e && e.s === 'TA' ? 'e1RM TrainAI : formule d’Epley sur la meilleure série' : 'e1RM calculé par MacroFactor');
+            if (e && isNum(e.rir)) r.push({ color: T.muted, value: nf(e.rir, 1), name: 'RIR moyen (séries de travail)' });
+            return tipBox(fdL(e.d) + (e.pr ? ' · record' : ''), r, 'e1RM : formule d’Epley sur la meilleure série (poids d’un haltère)');
           },
         }),
         xAxis: SD.xTime(), yAxis: yVal({ scale: true, name: mu }),
@@ -129,6 +132,7 @@
           <div class="dstat"><div class="l">Charge max</div><div class="v">${hw.length ? nf(Math.max(...hw), 1) + ' kg' : '—'}</div><div class="l">sur la période</div></div>
           <div class="dstat"><div class="l">Séries / séance</div><div class="v">${nf(mean(pluck(rows, (e) => e.sets)), 1)}</div><div class="l">moyenne</div></div>
           <div class="dstat"><div class="l">Volume / séance</div><div class="v">${nf(mean(pluck(rows, (e) => e.vol)), 0)} kg</div><div class="l">moyenne</div></div>
+          ${pluck(rows, (e) => e.rir).length ? `<div class="dstat"><div class="l">RIR moyen</div><div class="v">${nf(mean(pluck(rows, (e) => e.rir)), 1)}</div><div class="l">répétitions en réserve</div></div><div class="dstat"><div class="l">Séries à l’échec</div><div class="v">${nf(SD.sum(pluck(rows, (e) => e.fail)), 0)}</div><div class="l">RIR 0 (exports récents)</div></div>` : ''}
         </div>
         <h3 style="margin:16px 0 6px;font:700 12.5px/1 var(--font-c);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Derniers records (${allPr.length})</h3>
         ${allPr.length ? `<div>${allPr.map((e) => `<div class="statline"><span>${esc(fdM(e.d))}</span><b style="color:var(--good)">${nf(e.e1, 1)} kg</b></div>`).join('')}</div>` : '<p class="note">Pas encore de record enregistré.</p>'}
@@ -171,43 +175,73 @@
         series: [SD.bar('Records', prCount, T.good)],
       }) : base(SD.emptyOpt('Aucun record sur la période')), () => ({ cols: ['Mois', 'Records'], rows: mk2.map((m, i) => [SD.fdate(m, { month: 'long', year: 'numeric' }), prCount[i]]) }));
 
-      // ---- séries par muscle
-      const wks = Math.max(1, F.len / 7);
-      const tot = new Map();
-      for (const m of F.muscles) tot.set(m.m, (tot.get(m.m) || 0) + (m.sets || 0));
-      const mus = [...tot.entries()].map(([m, v]) => ({ m, v: v / wks })).filter((q) => q.v > 0).sort((a, b) => b.v - a.v);
+      // ---- volume par muscle : direct / indirect
       const [lo, hi] = cfg.setsPerMuscleWeek;
+      const wks = Math.max(1, F.len / 7);
+      const agg = SD.muscles.aggregate(F.exercises, wks, F.muscles);
+      const mus = agg.rows.filter((q) => q.eff >= 0.1);
+      const status = (q) => (q.eff < lo ? ['warn', 'Sous la cible'] : q.eff > hi ? ['ok', 'Au-dessus'] : ['good', 'Dans la cible']);
+      const IND = 'rgba(46,155,255,0.38)';
+      setText('st-mus-s', `Séries par semaine · plein = séries directes (muscle moteur), clair = apport indirect (½ série quand le muscle assiste, chiffres MacroFactor quand ils existent) · bande = cible ${lo}–${hi} séries effectives`);
       const musEl = document.getElementById('st-mus');
-      if (musEl) musEl.style.height = Math.max(260, mus.length * 22 + 40) + 'px';
+      if (musEl) musEl.style.height = Math.max(280, mus.length * 24 + 50) + 'px';
       chart('st-mus', mus.length ? base({
-        grid: { left: 16, right: 40, top: 6, bottom: 6, containLabel: true },
-        tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => tipBox(p.name, [{ color: T.strain, box: true, value: nf(p.value, 1), name: 'séries / semaine' }], `Cible ${lo}–${hi}`) }),
-        xAxis: yVal({ splitLine: { show: false } }),
+        grid: { left: 16, right: 46, top: 30, bottom: 6, containLabel: true },
+        legend: SD.ui.ecLegend(T, ['Directes', 'Apport indirect']),
+        tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => { const q = mus[p.dataIndex]; return tipBox(q.m, [
+          { color: T.strain, box: true, value: nf(q.direct, 1), name: 'séries directes / sem' }, { color: IND, box: true, value: nf(q.indirect, 1), name: 'apport indirect / sem' },
+          { color: T.ink, value: nf(q.eff, 1), name: 'séries effectives' }, { color: T.muted, value: nf(q.freq, 1) + ' j / sem', name: 'fréquence directe' },
+          { color: T.muted, value: nf(q.tonD, 0) + ' + ' + nf(q.tonI, 0) + ' kg', name: 'tonnage direct + indirect / sem' }], `${status(q)[1]} (cible ${lo}–${hi})`); } }),
+        xAxis: yVal({ splitLine: { lineStyle: { color: T.grid } } }),
         yAxis: xCat(mus.map((q) => q.m), { inverse: true, axisLine: { show: false }, axisLabel: { color: T.ink2, fontSize: 12 } }),
-        series: [{ type: 'bar', barMaxWidth: 13, data: mus.map((q) => ({ value: +q.v.toFixed(1), itemStyle: { color: q.v < lo ? T.warn : q.v > hi ? T.body : T.strain, borderRadius: [0, 4, 4, 0] } })),
-          label: { show: true, position: 'right', color: T.ink2, fontSize: 11, formatter: (p) => nf(p.value, 1) },
-          markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.07)' }, label: { show: true, position: 'insideTop', color: T.muted, fontSize: 10.5, formatter: `cible ${lo}–${hi}` }, data: [[{ xAxis: lo }, { xAxis: hi }]] } }],
-      }) : base(SD.emptyOpt('Données par muscle : MacroFactor, depuis janv. 2026')), () => ({ cols: ['Muscle', 'Séries / semaine'], rows: mus.map((q) => [q.m, nf(q.v, 1)]) }));
+        series: [
+          { name: 'Directes', type: 'bar', stack: 'v', barMaxWidth: 14, itemStyle: { color: T.strain }, data: mus.map((q) => ({ value: +q.direct.toFixed(1), itemStyle: { color: T.strain } })),
+            markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.07)' }, label: { show: true, position: 'insideTop', color: T.muted, fontSize: 10.5, formatter: `cible ${lo}–${hi}` }, data: [[{ xAxis: lo }, { xAxis: hi }]] } },
+          { name: 'Apport indirect', type: 'bar', stack: 'v', barMaxWidth: 14, itemStyle: { color: IND }, data: mus.map((q) => ({ value: +q.indirect.toFixed(1), itemStyle: { color: IND, borderRadius: [0, 4, 4, 0] } })),
+            label: { show: true, position: 'right', color: T.ink2, fontSize: 11, formatter: (p) => nf(mus[p.dataIndex].eff, 1) } },
+        ],
+      }) : base(SD.emptyOpt('Aucun exercice détaillé sur la période')), () => ({ cols: ['Muscle', 'Directes / sem', 'Apport indirect / sem', 'Effectives / sem'], rows: mus.map((q) => [q.m, nf(q.direct, 1), nf(q.indirect, 1), nf(q.eff, 1)]) }));
       if (SD.charts.get('st-mus')) SD.charts.get('st-mus').resize();
 
-      // ---- carte de chaleur
+      // ---- évolution d'un muscle
+      const msel = document.getElementById('st-mus-sel');
+      if (!S.musSel || !mus.some((q) => q.m === S.musSel)) S.musSel = mus.length ? mus.slice().sort((a, b) => b.eff - a.eff)[0].m : '';
+      if (msel) msel.innerHTML = mus.map((q) => `<option value="${esc(q.m)}"${q.m === S.musSel ? ' selected' : ''}>${esc(q.m)}</option>`).join('');
       const wkeys = bucketKeys('week');
+      const wOf = (w) => (agg.weekly.get(w) && agg.weekly.get(w).get(S.musSel)) || null;
+      setText('st-musw-s', `${S.musSel || 'Muscle'} : séries directes et apport indirect par semaine · bande = cible ${lo}–${hi}`);
+      chart('st-musw', S.musSel ? base({
+        grid: { left: 8, right: 14, top: 40, bottom: 8, containLabel: true },
+        legend: SD.ui.ecLegend(T, ['Directes', 'Apport indirect']),
+        tooltip: Object.assign(base().tooltip, { axisPointer: { type: 'shadow' }, formatter: (ps) => { const w = wkeys[ps[0].dataIndex]; const q = wOf(w) || { direct: 0, indirect: 0, tonD: 0, tonI: 0 }; return tipBox(`Semaine du ${fdM(w)}`, [
+          { color: T.strain, box: true, value: nf(q.direct, 1), name: 'séries directes' }, { color: IND, box: true, value: nf(q.indirect, 1), name: 'apport indirect' },
+          { color: T.ink, value: nf(q.direct + q.indirect, 1), name: 'effectives' }, { color: T.muted, value: nf(q.tonD + q.tonI, 0) + ' kg', name: 'tonnage' }]); } }),
+        xAxis: xCat(wkeys.map((w) => fdS(w))), yAxis: yVal({ name: 'séries' }),
+        series: [
+          SD.bar('Directes', wkeys.map((w) => (wOf(w) ? +wOf(w).direct.toFixed(1) : 0)), T.strain, { stack: 'w', markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.07)' }, data: [[{ yAxis: lo }, { yAxis: hi }]] } }),
+          SD.bar('Apport indirect', wkeys.map((w) => (wOf(w) ? +wOf(w).indirect.toFixed(1) : 0)), IND, { stack: 'w', itemStyle: { color: IND, borderRadius: [3, 3, 0, 0] } }),
+        ],
+      }) : base(SD.emptyOpt('Aucun muscle travaillé sur la période')), () => ({ cols: ['Semaine', 'Directes', 'Apport indirect', 'Tonnage (kg)'], rows: wkeys.map((w) => { const q = wOf(w) || { direct: 0, indirect: 0, tonD: 0, tonI: 0 }; return [fdM(w), nf(q.direct, 1), nf(q.indirect, 1), nf(q.tonD + q.tonI, 0)]; }) }));
+
+      // ---- tableau par muscle
+      setHTML('st-must-b', mus.length ? `<table class="t"><thead><tr><th>Muscle</th><th class="num">Directes</th><th class="num">Apport indirect</th><th class="num">Effectives</th><th class="num">Fréquence</th><th class="num">Tonnage direct</th><th class="num">Tonnage indirect</th><th>Statut</th></tr></thead><tbody>${mus.map((q) => { const st = status(q); return `<tr><td>${esc(q.m)}</td><td class="num">${nf(q.direct, 1)}</td><td class="num">${nf(q.indirect, 1)}</td><td class="num"><b>${nf(q.eff, 1)}</b></td><td class="num">${nf(q.freq, 1)} j${q.freq > 0 && q.freq < 1.5 && q.direct >= 3 ? ' <span class="status warn" title="Moins de 2 séances directes par semaine">peu fréquent</span>' : ''}</td><td class="num">${nf(q.tonD, 0)} kg</td><td class="num">${nf(q.tonI, 0)} kg</td><td><span class="status ${st[0]}">${st[1]}</span></td></tr>`; }).join('')}</tbody></table>
+        ${agg.unmapped.length ? `<p class="note">Exercices non classés (comptés nulle part) : ${agg.unmapped.map((u) => esc(u.n)).join(', ')}.</p>` : ''}` : '<div class="empty">Aucun exercice détaillé sur la période.</div>');
+
+      // ---- carte de chaleur (séries effectives)
       const mlist = mus.map((q) => q.m);
-      const hm = new Map();
-      for (const m of F.muscles) { const k2 = SD.weekOf(m.d) + '|' + m.m; hm.set(k2, (hm.get(k2) || 0) + (m.sets || 0)); }
       const hdata = [];
-      wkeys.forEach((w, i) => mlist.forEach((m, j) => { const v = hm.get(w + '|' + m); if (v) hdata.push([i, j, +v.toFixed(1)]); }));
+      wkeys.forEach((w, i) => mlist.forEach((m, j) => { const q = agg.weekly.get(w) && agg.weekly.get(w).get(m); const v = q ? q.direct + q.indirect : 0; if (v) hdata.push([i, j, +v.toFixed(1)]); }));
       const heatEl = document.getElementById('st-heat');
       if (heatEl) heatEl.style.height = Math.max(200, mlist.length * 20 + 70) + 'px';
       const hv = hdata.map((p) => p[2]);
       chart('st-heat', hdata.length ? base({
         grid: { left: 16, right: 10, top: 36, bottom: 6, containLabel: true },
-        tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => tipBox(`${mlist[p.value[1]]} · semaine du ${fdM(wkeys[p.value[0]])}`, [{ color: T.strain, box: true, value: nf(p.value[2], 1), name: 'séries' }]) }),
+        tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => tipBox(`${mlist[p.value[1]]} · semaine du ${fdM(wkeys[p.value[0]])}`, [{ color: T.strain, box: true, value: nf(p.value[2], 1), name: 'séries effectives' }]) }),
         xAxis: xCat(wkeys.map((w) => fdS(w)), { axisLine: { show: false } }),
         yAxis: xCat(mlist, { inverse: true, axisLine: { show: false }, axisLabel: { color: T.ink2, fontSize: 11.5 } }),
         visualMap: { min: 0, max: Math.max(hi, ...hv), orient: 'horizontal', right: 0, top: 0, itemWidth: 10, itemHeight: 110, calculable: false, text: [nf(Math.max(hi, ...hv), 0), '0'], textStyle: { color: T.muted, fontSize: 11 }, inRange: { color: [T.seq[0], T.seq[2], T.seq[3], T.seq[4], T.seq[5]] } },
         series: [{ type: 'heatmap', data: hdata, itemStyle: { borderColor: T.card, borderWidth: 2, borderRadius: 3 } }],
-      }) : base(SD.emptyOpt('Données par muscle : MacroFactor, depuis janv. 2026')), () => ({ cols: ['Muscle', ...wkeys.map((w) => fdS(w))], rows: mlist.map((m) => [m, ...wkeys.map((w) => nf(hm.get(w + '|' + m) || 0, 1))]) }));
+      }) : base(SD.emptyOpt('Aucun exercice détaillé sur la période')), () => ({ cols: ['Muscle', ...wkeys.map((w) => fdS(w))], rows: mlist.map((m) => [m, ...wkeys.map((w) => { const q = agg.weekly.get(w) && agg.weekly.get(w).get(m); return nf(q ? q.direct + q.indirect : 0, 1); })]) }));
       if (SD.charts.get('st-heat')) SD.charts.get('st-heat').resize();
 
       // ---- tableau

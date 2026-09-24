@@ -7,7 +7,7 @@
   let shown = 40;
 
   const journal = {
-    id: 'journal', title: 'Journal', sub: 'Ton ressenti au quotidien, les retours du coach et l’impact mesuré de tes habitudes sur la récupération.',
+    id: 'journal', title: 'Journal', sub: 'Une note par jour, des #tags, ton ressenti si tu veux : le dashboard mesure ensuite l’effet de tes habitudes sur ta récupération.',
     html() {
       return `<section class="card c5"><div class="card-h"><div><h2>Entrée du jour</h2><p class="sub" id="jr-sub"></p></div>
           <div class="card-tools"><button type="button" class="btn icon-btn" data-dayshift="-1" aria-label="Jour précédent">‹</button><input type="date" class="field" id="jr-pick" aria-label="Jour"><button type="button" class="btn icon-btn" data-dayshift="1" aria-label="Jour suivant">›</button></div></div><div id="jr-form"></div></section>
@@ -27,22 +27,25 @@
       J.renderDay(document.getElementById('jr-form'), S.day);
 
       // ---- fil
-      const days = F.days.slice().reverse().filter((x) => J.entries.has(x.d) || M.coach.has(x.d) || isNum(x.mood) || M.raw.notes.some((n) => n.d === x.d));
+      const jd = J.days();
+      const days = F.days.slice().reverse().filter((x) => jd.has(x.d) || M.coach.has(x.d) || isNum(x.mood) || M.raw.notes.some((n) => n.d === x.d));
       setText('jr-list-s', `${days.length} jours avec au moins une entrée sur la période`);
       setHTML('jr-list', days.slice(0, shown).map((x) => {
-        const e = J.entries.get(x.d);
+        const e = J.combined(x.d);
         const lines = [];
         if (e) {
           const sc = J.SCALES.filter(([k]) => isNum(e[k])).map(([k, l]) => `${l} ${e[k]}/5`);
           const pn = Object.entries(e.pain || {}).filter(([, v]) => isNum(v) && v > 0).map(([k, v]) => `douleur ${k.toLowerCase()} ${v}/10`);
           const tg = (e.tags || []).map((id) => J.labels()[id] || id);
-          lines.push(`<p><span class="src">Journal</span>${esc([...sc, ...pn].join(' · '))}${tg.length ? ` · <b>${esc(tg.join(', '))}</b>` : ''}${e.text ? ` — ${esc(e.text)}` : ''}</p>`);
+          const head = [...sc, ...pn].join(' · ');
+          lines.push(`<p><span class="src">${e.src.includes('journal') ? 'Journal' : 'Feuille'}</span>${tg.length ? `<b>${esc(tg.map((t) => '#' + t).join(' '))}</b>${head || e.texts.length ? ' · ' : ''}` : ''}${esc(head)}${e.texts.length ? `${head ? ' — ' : ''}${esc(e.texts.join(' · '))}` : ''}</p>`);
         }
-        for (const n of M.raw.notes.filter((n) => n.d === x.d)) lines.push(`<p><span class="src">${esc(n.src === 'journal' ? 'Retours' : n.src === 'séance' ? 'Séance' : 'Nutrition')}</span>${n.ex ? `<b>${esc(n.ex)}</b> · ` : ''}${esc(n.text)}</p>`);
+        const sheetTxt = (J.sheet().get(x.d) || {}).text || '';
+        for (const n of M.raw.notes.filter((n) => n.d === x.d && !(n.src === 'journal' && sheetTxt.includes(n.text)))) lines.push(`<p><span class="src">${esc(n.src === 'journal' ? 'Retours' : n.src === 'séance' ? 'Séance' : 'Nutrition')}</span>${n.ex ? `<b>${esc(n.ex)}</b> · ` : ''}${esc(n.text)}</p>`);
         const co = M.coach.get(x.d);
         if (co) lines.push(`<p><span class="src">Coach</span>${co.scores && isNum(co.scores.global) ? `<b>Global ${nf(co.scores.global, 0)}</b> · ` : ''}${esc(co.verdict || '')}</p>`);
         if (isNum(x.mood)) lines.push(`<p><span class="src">Apple</span>Humeur ${esc(J.moodLabel(x.mood))}</p>`);
-        return `<div class="entry" data-day="${x.d}" style="cursor:pointer"><div class="mini"><b style="color:${SD.recColor(x.rec)}">${isNum(x.rec) ? nf(x.rec, 0) : '—'}</b><span>récup</span><b style="color:${T.strain}">${isNum(x.strain) ? nf(x.strain, 1) : '—'}</b><span>charge</span></div>
+        return `<div class="entry" data-day="${x.d}" style="cursor:pointer"><div class="mini"><b style="color:${SD.recColor(x.rec)}">${isNum(x.rec) ? nf(x.rec, 0) : '—'}</b><span>récup</span><b style="color:${T.strain}">${isNum(x.strain) ? nf(x.strain, 0) : '—'}</b><span>charge</span></div>
           <div><h3>${esc(SD.fdate(x.d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</h3>${lines.join('')}</div></div>`;
       }).join('') || '<div class="empty">Aucune entrée sur la période. Remplis l’entrée du jour à gauche : chaque note enrichit l’analyse d’impact.</div>');
       document.querySelectorAll('#jr-list .entry').forEach((el) => { el.onclick = () => { SD.setDay(el.dataset.day); SD.refresh(); document.getElementById('jr-form').scrollIntoView({ behavior: 'smooth', block: 'start' }); }; });
@@ -65,7 +68,7 @@
       if (SD.charts.get('jr-imp')) SD.charts.get('jr-imp').resize();
 
       // ---- ressenti
-      const ent = [...J.entries.values()].filter((e) => e.d >= S.from && e.d <= S.to).sort((a, b) => a.d.localeCompare(b.d));
+      const ent = [...J.days()].filter((d) => d >= S.from && d <= S.to).sort().map((d) => J.combined(d));
       const colors = [T.sleep, T.nutri, T.crit, T.act];
       const moodSeries = J.SCALES.map(([k, l], i) => line(l, ent.filter((e) => isNum(e[k])).map((e) => [tms(e.d), e[k]]), colors[i], { showSymbol: true, symbolSize: 6 })).filter((s) => s.data.length);
       chart('jr-mood', moodSeries.length ? base({

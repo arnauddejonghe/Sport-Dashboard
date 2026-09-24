@@ -5,7 +5,9 @@
   const { S, esc, nf, sgn, fdM, fdL, fdS, fH, fHM, isNum, tms, dstr, addD, nDays, WD, PRESETS, TYPE_ORDER, typeColor, STRENGTH } = SD;
 
   const $ = (s, el = document) => el.querySelector(s);
-  const PAGE_ORDER = ['today', 'overview', 'recovery', 'training', 'strength', 'body', 'longevity', 'journal', 'data'];
+  const PAGE_ORDER = ['today', 'journal', 'overview', 'physique', 'strength', 'training', 'recovery', 'body', 'longevity', 'data'];
+  // navigation groupée : le quotidien, les résultats, le détail, les données
+  const NAV_GROUPS = [['Quotidien', ['today', 'journal']], ['Résultats', ['overview', 'physique', 'strength']], ['Détail', ['training', 'recovery', 'body', 'longevity']], ['', ['data']]];
   SD.PAGE_ORDER = PAGE_ORDER;
   const ICONS = {
     today: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -17,14 +19,17 @@
     longevity: '<path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/>',
     journal: '<path d="M6 3h11a2 2 0 0 1 2 2v16H8a3 3 0 0 1-3-3V4a1 1 0 0 1 1-1zM5 18a3 3 0 0 1 3-3h11M9 7h6M9 11h4"/>',
     data: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/>',
+    physique: '<circle cx="12" cy="4.5" r="2.2"/><path d="M5 9.5c2.2 1 4.5 1.5 7 1.5s4.8-.5 7-1.5M12 11v5M12 16l-3 5M12 16l3 5"/>',
   };
   const icon = (id) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[id] || ''}</svg>`;
 
   // ================================================================ navigation & en-tête
+  const navLabel = (id) => SD.PAGES[id].nav || SD.PAGES[id].title;
   function renderNav() {
     const items = PAGE_ORDER.filter((id) => SD.PAGES[id]);
-    $('#nav').innerHTML = items.map((id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${icon(id)}${esc(SD.PAGES[id].title)}</button>`).join('');
-    $('#mnav').innerHTML = items.map((id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${esc(SD.PAGES[id].title)}</button>`).join('');
+    const btn = (id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${icon(id)}${esc(navLabel(id))}</button>`;
+    $('#nav').innerHTML = NAV_GROUPS.map(([g, ids]) => { const its = ids.filter((id) => SD.PAGES[id]); return its.length ? `${g ? `<div class="nav-g">${esc(g)}</div>` : '<div class="nav-sep"></div>'}${its.map(btn).join('')}` : ''; }).join('');
+    $('#mnav').innerHTML = items.map((id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${esc(navLabel(id))}</button>`).join('');
   }
   function renderHeader() {
     const M = SD.M;
@@ -44,7 +49,7 @@
     } else dl.hidden = true;
     const P = SD.PAGES[S.page];
     $('#page-title').textContent = P ? P.title : '';
-    $('#page-sub').textContent = P ? P.sub || '' : '';
+    $('#page-sub').textContent = P ? (typeof P.sub === 'function' ? P.sub() : P.sub || '') : '';
   }
 
   // ================================================================ filtres
@@ -247,7 +252,7 @@
     const tg = x.tgt;
     const notes = M.raw.notes.filter((n) => n.d === d);
     const ex = x.ex.slice().sort((a, b) => a.n.localeCompare(b.n));
-    const je = SD.journal.entries.get(d);
+    const je = SD.journal.combined(d);
     const co = M.coach.get(d);
     const ds = SD.scores.dayScore(x);
     $('#drawer-body').innerHTML = `
@@ -255,7 +260,7 @@
       <h2 id="drawer-title">${esc(fdL(d))}</h2>
       <div style="display:flex;gap:14px;justify-content:space-between;margin-top:14px">
         ${SD.ring({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récup', size: 92, stroke: 9, cls: 'sm' })}
-        ${SD.ring({ value: x.strain, max: 21, color: T.strain, text: isNum(x.strain) ? nf(x.strain, 1) : null, label: 'Charge', size: 92, stroke: 9, cls: 'sm' })}
+        ${SD.ring({ value: x.strain, max: 100, color: T.strain, text: isNum(x.strain) ? nf(x.strain, 0) : null, label: 'Charge', size: 92, stroke: 9, cls: 'sm' })}
         ${SD.ring({ value: x.sleepPerf, max: 100, color: T.sleep, unit: '%', label: 'Sommeil', size: 92, stroke: 9, cls: 'sm' })}
         ${SD.ring({ value: ds, max: 100, color: SD.scoreColor(ds), text: isNum(ds) ? SD.scores.grade(ds) : null, label: 'Note', size: 92, stroke: 9, cls: 'sm' })}
       </div>
@@ -274,7 +279,7 @@
         ${stat('Pesée', isNum(x.weight) ? nf(x.weight, 2) + ' kg' : '—')}${stat('Poids tendance', isNum(x.trendW) ? nf(x.trendW, 2) + ' kg' : '—')}
         ${stat('Calories', isNum(x.kcal) ? `${nf(x.kcal, 0)}${tg ? ' / ' + nf(tg.kcal, 0) : ''} kcal` : '—')}${stat('Protéines', isNum(x.prot) ? `${nf(x.prot, 0)}${tg ? ' / ' + nf(tg.prot, 0) : ''} g` : '—')}
       </div>
-      ${je || notes.length || co ? `<h3>Journal</h3><ul>${je ? `<li>${esc([...SD.journal.SCALES.filter(([k]) => isNum(je[k])).map(([k, l]) => `${l} ${je[k]}/5`), ...(je.tags || []).map((t) => SD.journal.labels()[t] || t)].join(' · '))}${je.text ? ` — ${esc(je.text)}` : ''}</li>` : ''}${notes.map((n) => `<li>${n.ex ? `<b>${esc(n.ex)}</b> · ` : ''}${esc(n.text)}</li>`).join('')}${co ? `<li><b>Coach</b>${co.scores && isNum(co.scores.global) ? ` (global ${nf(co.scores.global, 0)})` : ''} · ${esc(co.verdict)}</li>` : ''}</ul>` : ''}
+      ${je || notes.length || co ? `<h3>Journal</h3><ul>${je ? `<li>${esc([...SD.journal.SCALES.filter(([k]) => isNum(je[k])).map(([k, l]) => `${l} ${je[k]}/5`), ...(je.tags || []).map((t) => '#' + (SD.journal.labels()[t] || t))].join(' · '))}${je.texts.length ? ` — ${esc(je.texts.join(' · '))}` : ''}</li>` : ''}${notes.map((n) => `<li>${n.ex ? `<b>${esc(n.ex)}</b> · ` : ''}${esc(n.text)}</li>`).join('')}${co ? `<li><b>Coach</b>${co.scores && isNum(co.scores.global) ? ` (global ${nf(co.scores.global, 0)})` : ''} · ${esc(co.verdict)}</li>` : ''}</ul>` : ''}
       <div style="display:flex;gap:8px;margin-top:20px;flex-wrap:wrap">
         <button type="button" class="btn" data-go="${addD(d, -1)}">← Veille</button><button type="button" class="btn" data-go="${addD(d, 1)}">Lendemain →</button>
         <button type="button" class="btn primary" data-open-day="${d}">Ouvrir la journée</button>

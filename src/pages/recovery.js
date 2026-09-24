@@ -108,7 +108,9 @@
       const xyOpt = xs.length >= 5 ? (() => {
         const { a, b } = linreg(xs, ys);
         const x0 = Math.min(...xs), x1 = Math.max(...xs);
-        sub += ` · r = ${nf(r, 2)} (${rWord(r)}) · n = ${xs.length} · pente ${sgn(b, Math.abs(b) < 1 ? 2 : 1)} ${my.unit || ''} par ${mx.unit || 'unité'}`;
+        // lecture en clair : effet d'un pas « parlant » de X (1 unité, 100 ou 1 000 selon l'échelle) et part de variation expliquée
+        const span = x1 - x0, stepX = span > 5000 ? 1000 : span > 500 ? 100 : span > 50 ? 10 : 1;
+        sub = `À retenir : chaque +${nf(stepX, 0)} ${mx.unit || ''} de ${mx.label.toLowerCase()} va avec ${sgn(b * stepX, Math.abs(b * stepX) < 1 ? 2 : 1)} ${my.unit || ''} de ${my.label.toLowerCase()} ${lag ? 'le lendemain' : 'le même jour'} · lien ${rWord(r)} (r = ${nf(r, 2)}, ${xs.length} jours), qui explique ${nf(r * r * 100, 0)} % des variations. Un lien n’est pas une cause.`;
         return base({
           grid: { left: 8, right: 18, top: 18, bottom: 24, containLabel: true },
           tooltip: Object.assign(base().tooltip, { trigger: 'item', axisPointer: { type: 'cross' }, formatter: (p) => (p.seriesName === 'Jours' ? tipBox(fdL(ds[p.dataIndex]), [{ color: T.strain, value: nf(p.value[0], mx.d) + ' ' + mx.unit, name: mx.label }, { color: T.strain, value: nf(p.value[1], my.d) + ' ' + my.unit, name: my.label + (lag ? ' (lendemain)' : '') }], 'Clic pour le détail du jour') : '') }),
