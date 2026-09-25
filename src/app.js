@@ -487,6 +487,11 @@
     // le thème « automatique » suit le système : on redessine les graphiques quand il change
     const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     if (mq && mq.addEventListener) mq.addEventListener('change', () => { if (themeMode() === 'auto') repaint(); });
+    // dans claude.ai, l'hôte peut poser data-theme sur <html> (thème choisi dans claude.ai) : on suit s'il change le rendu
+    if (window.MutationObserver) {
+      new MutationObserver(() => { if (SD.M && SD.T && /dark/.test(getComputedStyle(document.documentElement).colorScheme || '') !== !!SD.T.dark) repaint(); })
+        .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    }
     renderThemeSwitch();
 
     const embedded = window.SD_DATA || null;
