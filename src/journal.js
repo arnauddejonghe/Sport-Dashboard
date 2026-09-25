@@ -1,7 +1,10 @@
 /* Salle des Machines — journal quotidien.
  * Une note libre par jour, des tags (#hashtags dans le texte ou puces), un ressenti facultatif.
  * Stockage : base de l'Artifact (capability `db`, partagée entre tes appareils) ; à défaut, navigateur.
- * S'y ajoute la feuille « Journal » du Drive (raccourci Apple, formulaire), lue en lecture seule. */
+ * La feuille Google du journal (« Retours… ») est la référence éditable : chaque enregistrement y est copié
+ * (fichier déposé dans « Journal - entrées », intégré par le script de la feuille) ; une ligne « app » modifiée
+ * à la main dans la feuille l'emporte si elle est plus récente. Les lignes d'autres sources (manuel, raccourci,
+ * automatisations) s'ajoutent à la journée. */
 (function () {
   'use strict';
   const SD = window.SD;
@@ -35,16 +38,32 @@
     labels() { return Object.fromEntries(this.allTags()); },
     painSites() { return (SD.M && SD.M.cfg.painSites) || ['Genou', 'Lombaires']; },
 
-    /** Vue combinée d'un jour : saisie de la page + feuille du Drive */
+    /** Ligne « app » de la feuille pour un jour, et lignes des autres sources */
+    sheetApp(d) { const sh = this.sheet().get(d); return sh && sh.rows ? sh.rows.find((r) => r.src === 'app') || null : null; },
+    sheetOthers(d) { const sh = this.sheet().get(d); if (!sh) return []; return sh.rows ? sh.rows.filter((r) => r.src !== 'app') : [sh]; },
+    /** Tags d'une ligne de feuille ramenés aux identifiants connus (la feuille contient des libellés) */
+    mapTags(r) {
+      const byLabel = new Map(this.allTags().map(([id, l]) => [String(l).toLowerCase(), id]));
+      return (r.tags || []).map((id) => byLabel.get(String((r.tagLabels || {})[id] || id).toLowerCase()) || id);
+    },
+    /** Entrée de référence d'un jour : la plus récente entre la saisie du dashboard et la ligne « app » de la feuille */
+    entry(d) {
+      const a = this.entries.get(d), s = this.sheetApp(d);
+      if (!s) return a || null;
+      const sm = Date.parse(s.mod || '') || 0, am = a ? Date.parse(a.updatedAt || '') || 0 : 0;
+      if (a && am >= sm) return a;
+      return { d, text: s.text, tags: this.mapTags(s), mood: s.mood, energy: s.energy, stress: s.stress, soreness: s.soreness, pain: s.pain || {}, updatedAt: s.mod, fromSheet: true };
+    },
+    /** Vue combinée d'un jour : entrée de référence + lignes des autres sources de la feuille */
     combined(d) {
-      const a = this.entries.get(d), b = this.sheet().get(d);
-      if (!a && !b) return null;
+      const a = this.entry(d), others = this.sheetOthers(d);
+      if (!a && !others.length) return null;
       const o = { d, texts: [], tags: [], pain: {}, src: [] };
-      for (const e of [b, a]) {
+      for (const e of [...others, a]) {
         if (!e) continue;
-        o.src.push(e === a ? 'journal' : 'feuille');
+        o.src.push(e === a ? 'journal' : e.src || 'feuille');
         if (e.text) o.texts.push(e.text);
-        for (const t of e.tags || []) if (!o.tags.includes(t)) o.tags.push(t);
+        for (const t of (e === a ? e.tags : this.mapTags(e)) || []) if (!o.tags.includes(t)) o.tags.push(t);
         for (const [k] of SCALES) if (isNum(e[k])) o[k] = e[k];
         Object.assign(o.pain, e.pain || {});
       }
@@ -100,6 +119,7 @@
       const labels = {};
       for (const t of hashtags(body.text || '')) { const id = this.addTag(t.label) || t.id; if (!body.tags.includes(id)) body.tags.push(id); labels[id] = t.label; }
       body = Object.assign({ d, updatedAt: new Date().toISOString() }, body, Object.keys(labels).length ? { tagLabels: labels } : {});
+      this.mirror(d, body);
       if (this.mode === 'db' && this.db) {
         try { await this.push(d, body); this.entries.set(d, body); return { ok: true, where: 'synchronisé' }; }
         catch (e) { this.status = `Enregistrement partagé refusé (${e.code || 'erreur'})`; }
@@ -109,15 +129,27 @@
       try { const all = Object.fromEntries(this.entries); localStorage.setItem(LOCAL_KEY, JSON.stringify(all)); return { ok: true, where: 'sur cet appareil' }; }
       catch (e) { return { ok: false, where: '' }; }
     },
+    /** Copie vers la feuille Google (en arrière-plan) */
+    mirror(d, body) {
+      if (!SD.drive || !SD.drive.pushJournal) return;
+      const labels = this.labels();
+      SD.drive.pushJournal(d, Object.assign({}, body, { tagNames: (body.tags || []).map((t) => labels[t] || (body.tagLabels || {})[t] || t) }), this.painSites())
+        .then((r) => { this.sheetStatus = r.ok ? 'Copie envoyée à la feuille Google : intégrée par son script sous 5 minutes.' : r.msg; if (SD.onJournal) SD.onJournal(); })
+        .catch(() => null);
+    },
 
     /** Formulaire du jour : note libre, tags, ressenti facultatif ; puis les autres sources du jour */
     renderDay(el, d) {
       if (!el) return;
-      const M = SD.M, x = M.at(d), e = this.drafts.get(d) || this.entries.get(d) || {}, sh = this.sheet().get(d);
+      const M = SD.M, x = M.at(d), e = this.drafts.get(d) || this.entry(d) || {}, sh = this.sheet().get(d);
       const tags = new Set(e.tags || []);
       const pain = e.pain || {};
       const others = [];
-      if (sh) others.push(`<p><span class="src">Feuille</span>${sh.tags && sh.tags.length ? `<b>${esc(sh.tags.map((t) => this.labels()[t] || t).join(', '))}</b>${sh.text ? ' · ' : ''}` : ''}${esc(sh.text || '')}</p>`);
+      const SRC = { manuel: 'Feuille', feuille: 'Feuille', raccourci: 'Raccourci', make: 'Make' };
+      for (const r of this.sheetOthers(d)) {
+        const tg = this.mapTags(r);
+        others.push(`<p><span class="src">${esc(SRC[r.src] || (r.src ? r.src.charAt(0).toUpperCase() + r.src.slice(1) : 'Feuille'))}${r.time ? ' ' + esc(r.time) : ''}</span>${tg.length ? `<b>${esc(tg.map((t) => this.labels()[t] || t).join(', '))}</b>${r.text ? ' · ' : ''}` : ''}${esc(r.text || '')}</p>`);
+      }
       for (const n of M.raw.notes.filter((n) => n.d === d && !(sh && n.src === 'journal' && sh.text.includes(n.text)))) others.push(`<p><span class="src">${esc(n.src === 'journal' ? 'Retours' : n.src === 'séance' ? 'Séance' : 'Nutrition')}</span>${n.ex ? `<b>${esc(n.ex)}</b> · ` : ''}${esc(n.text)}</p>`);
       const co = M.coach.get(d);
       if (co) others.push(`<p><span class="src">Coach</span>${co.scores && isNum(co.scores.global) ? `<b>Global ${Math.round(co.scores.global)}</b> · ` : ''}${esc(co.verdict || '')}</p>`);
@@ -139,7 +171,9 @@
           <span class="fsummary" data-jstatus>${e.updatedAt ? `Enregistré le ${esc(new Date(e.updatedAt).toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : this.mode === 'db' ? 'Synchronisé entre tes appareils' : 'Enregistré dans ce navigateur'} · Ctrl + Entrée pour enregistrer</span></div>
       </form>
       ${others.length ? `<div class="jnotes">${others.join('')}</div>` : ''}
-      ${this.status ? `<p class="note">${esc(this.status)}</p>` : ''}`;
+      ${this.status ? `<p class="note">${esc(this.status)}</p>` : ''}
+      ${e.fromSheet ? '<p class="note">Version reprise de la feuille Google (modifiée à la main, plus récente).</p>' : ''}
+      ${this.sheetStatus ? `<p class="note">${esc(this.sheetStatus)}</p>` : ''}`;
 
       const form = el.querySelector('form');
       const rerender = () => this.renderDay(el, d);

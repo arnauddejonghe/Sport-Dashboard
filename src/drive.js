@@ -55,6 +55,36 @@
       return r && r.payload;
     },
 
+    /**
+     * Copie d'une entrée du journal vers la feuille Google : le connecteur ne modifie pas le contenu d'une feuille,
+     * on dépose donc un petit CSV dans « Journal - entrées » ; le script de la feuille l'intègre (une ligne « app » par jour).
+     */
+    async pushJournal(d, e, painSites) {
+      if (!this.mcp || ['hidden', 'consent'].includes(this.state)) return { ok: false, msg: 'Copie vers la feuille Google : connecte Google Drive (page Données).' };
+      try {
+        if (!this.inboxId) {
+          const folderName = (SD.M.cfg.drive && SD.M.cfg.drive.folder) || 'Suivi sportif';
+          if (!this.rootId) { const f = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`); this.rootId = f[0] && f[0].id; }
+          const subs = this.rootId ? await this.list(`parentId = '${this.rootId}' and mimeType = '${MIME.folder}'`) : [];
+          const ib = subs.find((f) => /^journal\s*-\s*entr[ée]es$/i.test(f.title));
+          if (!ib) return { ok: false, msg: 'Dossier « Journal - entrées » introuvable : exécute une fois setup() du script de la feuille (voir page Données).' };
+          this.inboxId = ib.id;
+        }
+        const q = (v) => { const t = v == null ? '' : String(v); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+        const sites = painSites || [];
+        const head = ['Date', 'Heure', 'Source', 'Note', 'Tags', 'Humeur', 'Énergie', 'Stress', 'Courbatures', ...sites.map((p) => 'Douleur ' + p.toLowerCase()), 'Modifié'];
+        const now = new Date();
+        const hhmm = now.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+        const row = [d, hhmm, 'app', e.text || '', (e.tagNames || []).join(', '), e.mood, e.energy, e.stress, e.soreness, ...sites.map((p) => (e.pain || {})[p]), e.updatedAt || now.toISOString()];
+        const csv = head.map(q).join(',') + '\n' + row.map(q).join(',') + '\n';
+        const stamp = now.toISOString().replace(/[-:]/g, '').slice(0, 15);
+        await this.call('create_file', { title: `journal_app_${d}_${stamp}.csv`, parentId: this.inboxId, textContent: csv, contentMimeType: 'text/csv', disableConversionToGoogleType: true });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, msg: `Copie vers la feuille impossible : ${this.explain(err)[0]}` };
+      }
+    },
+
     explain(e) {
       const code = e && e.code;
       const msgs = {
@@ -109,8 +139,11 @@
         const folders = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`);
         if (!folders.length) { this.set('error', 'warn', `Dossier « ${folderName} » introuvable dans ton Drive.`, 'dossier introuvable', 'Le nom du dossier se règle dans data/config.json (drive.folder).'); return; }
         const root = folders[0];
+        this.rootId = root.id;
         let files = await this.list(`parentId = '${root.id}'`);
-        for (const sub of files.filter((f) => f.mimeType === MIME.folder && !/photo/i.test(f.title))) {
+        const inbox = files.find((f) => f.mimeType === MIME.folder && /^journal\s*-\s*entr[ée]es$/i.test(f.title));
+        if (inbox) this.inboxId = inbox.id;
+        for (const sub of files.filter((f) => f.mimeType === MIME.folder && !/photo/i.test(f.title) && f !== inbox)) {
           files = files.concat(await this.list(`parentId = '${sub.id}'`));
         }
         // sélection : fichiers reconnus, nouveaux ou modifiés depuis la dernière synchro / le build
@@ -214,7 +247,20 @@
     if (m) return `${m[3]}-${m[2]}-${m[1]}`;
     return String(created || '').slice(0, 10) || null;
   }
-  D.photoMeta = (title, created) => ({ d: photoDate(title, created), pose: POSE(title) });
+  D.photoMeta = (title, created) => ({ d: photoDate(title, created), pose: POSE(title), dated: /(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})|(\d{2})[-_.](\d{2})[-_.](20\d{2})/.test(String(title)) });
+  // Date de prise de vue lue dans les métadonnées EXIF (photos nommées « IMG_1234.HEIC ») : seule la date est gardée, dans ce navigateur
+  const EXIF_KEY = 'sdm-photo-dates-v1';
+  const exifCache = (() => { try { return JSON.parse(localStorage.getItem(EXIF_KEY) || '{}'); } catch (e) { return {}; } })();
+  const saveExif = () => { try { localStorage.setItem(EXIF_KEY, JSON.stringify(exifCache)); } catch (e) { /* ignoré */ } };
+  function exifDate(bytes) {
+    const n = Math.min(bytes.length, 600000);
+    let s = '';
+    for (let i = 0; i < n; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(n, i + 8192)));
+    const all = s.match(/(?:19|20)\d\d:[01]\d:[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d/g) || [];
+    if (!all.length) return null;
+    const m = all.sort()[0]; // la plus ancienne des dates EXIF = prise de vue (DateTimeOriginal ≤ DateTime)
+    return `${m.slice(0, 4)}-${m.slice(5, 7)}-${m.slice(8, 10)}`;
+  }
   D.photos = null;
   D.photoState = 'idle';
   D.listPhotos = async function () {
@@ -232,19 +278,50 @@
         files = files.concat(inside.filter((f) => /^image\//.test(f.mimeType || '')));
         for (const sub2 of inside.filter((f) => f.mimeType === MIME.folder)) files = files.concat((await this.list(`parentId = '${sub2.id}'`)).filter((f) => /^image\//.test(f.mimeType || '')));
       }
-      this.photos = files.map((f) => Object.assign({ id: f.id, title: f.title, mimeType: f.mimeType }, D.photoMeta(f.title, f.createdTime || f.modifiedTime))).filter((p) => p.d).sort((a, b) => a.d.localeCompare(b.d));
+      this.photos = files.map((f) => {
+        const p = Object.assign({ id: f.id, title: f.title, mimeType: f.mimeType }, D.photoMeta(f.title, f.createdTime || f.modifiedTime));
+        if (!p.dated && exifCache[f.id]) { p.d = exifCache[f.id]; p.dated = 'exif'; }
+        return p;
+      }).filter((p) => p.d).sort((a, b) => a.d.localeCompare(b.d));
       this.photoState = subs.length ? 'ok' : 'nosub';
+      this.datePhotos();
       return this.photos;
     } catch (e) { this.photoState = 'error'; this.photoError = this.explain(e)[0]; return []; }
   };
   const blobCache = new Map();
-  /** URL affichable d'une photo du Drive (HEIC converti en JPEG si besoin), gardée en mémoire le temps de la visite */
-  D.photoURL = async function (p) {
-    if (blobCache.has(p.id)) return blobCache.get(p.id);
-    const r = await this.call('download_file_content', { fileId: p.id });
+  const rawCache = new Map();
+  async function fetchBytes(p) {
+    if (rawCache.has(p.id)) return rawCache.get(p.id);
+    const r = await D.call('download_file_content', { fileId: p.id });
     const b64 = r && (r.content || r.data);
     if (!b64) throw new Error('photo vide');
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    rawCache.set(p.id, bytes);
+    return bytes;
+  }
+  /** En arrière-plan : date EXIF des photos sans date dans le nom (une fois par photo, résultat gardé dans le navigateur) */
+  D.datePhotos = async function () {
+    if (this.dating) return;
+    const todo = (this.photos || []).filter((p) => !p.dated);
+    if (!todo.length) return;
+    this.dating = true;
+    try {
+      for (const p of todo) {
+        try {
+          const d = exifDate(await fetchBytes(p));
+          if (d) { p.d = d; p.dated = 'exif'; exifCache[p.id] = d; saveExif(); }
+          else p.dated = 'created';
+        } catch (e) { p.dated = 'created'; }
+        this.photoProgress = todo.filter((q) => q.dated).length + ' / ' + todo.length;
+        if (SD.onPhotos) SD.onPhotos();
+      }
+      this.photos.sort((a, b) => a.d.localeCompare(b.d));
+    } finally { this.dating = false; this.photoProgress = null; if (SD.onPhotos) SD.onPhotos(); }
+  };
+  /** URL affichable d'une photo du Drive (HEIC converti en JPEG si besoin), gardée en mémoire le temps de la visite */
+  D.photoURL = async function (p) {
+    if (blobCache.has(p.id)) return blobCache.get(p.id);
+    const bytes = await fetchBytes(p);
     let blob = new Blob([bytes], { type: p.mimeType || 'image/jpeg' });
     if (/hei[cf]/i.test(p.mimeType + p.title)) blob = await heicToJpeg(blob);
     const url = URL.createObjectURL(blob);

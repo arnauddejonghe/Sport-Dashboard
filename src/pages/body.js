@@ -12,7 +12,7 @@
     ['sodium', 'Sodium', 'mg', 0, (v) => (v < 2000 ? 'good' : v < 3000 ? 'warn' : 'crit'), '< 2 000 mg (OMS)'],
     ['sugar', 'Sucres', 'g', 0, (v) => (v < 50 ? 'good' : v < 80 ? 'warn' : 'crit'), '< 50 g (OMS)'],
     ['caffeine', 'Caféine', 'mg', 0, (v) => (v <= 400 ? 'good' : v <= 600 ? 'warn' : 'crit'), '≤ 400 mg (EFSA)'],
-    ['water', 'Eau (loggée)', 'mL', 0, (v) => (v >= 2500 ? 'good' : v >= 1500 ? 'warn' : 'crit'), '≥ 2,5 L (EFSA)'],
+    ['water', 'Eau des aliments', 'mL', 0, () => null, 'comptée dans l’hydratation'],
     ['alcohol', 'Alcool', 'g', 0, (v) => (v <= 0 ? 'good' : v < 10 ? 'warn' : 'crit'), '0 idéalement'],
   ];
 
@@ -28,7 +28,8 @@
         ${card('c6', 'bd-score', 'Score nutrition', 'Par jour loggé : calories vs cible (45 %), protéines vs cible (40 %), fibres vs 30 g (15 %)')}
         ${card('c6', 'bd-bal', 'Balance énergétique', 'Calories ingérées − dépense estimée par MacroFactor')}
         ${card('c6', 'bd-wd', 'Écart à la cible par jour', 'Moyenne (ingéré − cible MacroFactor) par jour de semaine')}
-        ${card('c12', 'bd-micro', 'Micronutriments & hydratation', 'Moyenne des jours loggés vs repères de santé publique', '', { table: false, body: '<div id="bd-micro-b" class="micro-grid"></div>' })}`;
+        ${card('c12', 'bd-micro', 'Micronutriments', 'Moyenne des jours loggés vs repères de santé publique', '', { table: false, body: '<div id="bd-micro-b" class="micro-grid"></div>' })}
+        ${card('c12', 'bd-hyd', 'Hydratation', '', '', { h: 'short' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
@@ -97,7 +98,23 @@
         const n = pluck(lg, (x) => x[k]).length;
         const s = isNum(v) ? st(v) : null;
         return `<div class="statline"><span>${esc(lab)} <small style="color:var(--muted)">· repère ${esc(ref)}</small></span><b>${isNum(v) ? (u === 'mL' ? nf(v / 1000, 2) + ' L' : nf(v, dg) + ' ' + u) : '—'} ${s ? `<span class="status ${s}" style="margin-left:6px">${s === 'good' ? 'OK' : s === 'warn' ? 'Limite' : 'À revoir'}</span>` : ''}<small style="color:var(--muted);font-weight:400;margin-left:6px">${n ? n + ' j' : ''}</small></b></div>`;
-      }).join('') + '<p class="note">Moyenne sur les jours où la donnée est loggée. L’eau ne compte que ce que tu saisis.</p>');
+      }).join('') + '<p class="note">Moyenne sur les jours où la donnée est loggée.</p>');
+
+      // ---- hydratation : boissons notées (Apple Santé) + eau des aliments (MacroFactor) vs cible du jour
+      const hd = F.days.filter((x) => !x.partial);
+      const logged = hd.filter((x) => isNum(SD.scores.hydroTotal(x)));
+      setText('bd-hyd-s', `Cible du jour : 35 ml/kg de poids tendance + 0,5 L par heure de musculation (EFSA 2010 : ~2,5 L/j d’eau totale chez l’homme, aliments compris). ${logged.length} jour${logged.length > 1 ? 's' : ''} sur ${hd.length} avec des boissons notées${logged.length < hd.length / 2 ? ' : note tes boissons dans Apple Santé (widget ou raccourci « Eau ») pour un suivi fiable ; l’eau des aliments seule est affichée en clair' : ''}.`);
+      chart('bd-hyd', base({
+        grid: { left: 8, right: 14, top: 40, bottom: 8, containLabel: true },
+        legend: SD.ui.ecLegend(T, ['Boissons', 'Eau des aliments', 'Cible']),
+        tooltip: Object.assign(base().tooltip, { axisPointer: { type: 'shadow' }, formatter: (ps) => { const x = hd[ps[0].dataIndex]; const dr = SD.scores.drinks(x); return tipBox(SD.fdL(x.d), [{ color: T.s[0], box: true, value: dr != null ? nf(dr / 1000, 2) + ' L' : 'non notées', name: 'boissons' }, { color: 'rgba(57,135,229,0.35)', box: true, value: isNum(x.water) ? nf(x.water / 1000, 2) + ' L' : '—', name: 'eau des aliments' }, { color: T.ink2, value: nf(SD.scores.hydroTarget(x) / 1000, 1) + ' L', name: 'cible' }]); } }),
+        xAxis: xCat(hd.map((x) => SD.fdS(x.d))), yAxis: yVal({ min: 0, name: 'L' }),
+        series: [
+          bar('Eau des aliments', hd.map((x) => (isNum(x.water) ? +(x.water / 1000).toFixed(2) : null)), 'rgba(57,135,229,0.35)', { stack: 'h' }),
+          bar('Boissons', hd.map((x) => { const dr = SD.scores.drinks(x); return dr != null ? +(dr / 1000).toFixed(2) : null; }), T.s[0], { stack: 'h' }),
+          line('Cible', hd.map((x) => { const t = SD.scores.hydroTarget(x); return t ? +(t / 1000).toFixed(2) : null; }), T.ink2, { connectNulls: true, lineStyle: { width: 1.5, type: 'dashed', color: T.ink2 } }),
+        ],
+      }), () => ({ cols: ['Date', 'Boissons (L)', 'Eau des aliments (L)', 'Cible (L)'], rows: hd.map((x) => { const dr = SD.scores.drinks(x); const t = SD.scores.hydroTarget(x); return [fdM(x.d), dr != null ? nf(dr / 1000, 2) : '—', isNum(x.water) ? nf(x.water / 1000, 2) : '—', t ? nf(t / 1000, 1) : '—']; }) }));
 
       // ---- balance
       const bal = SD.agg(lg.filter((x) => isNum(x.tdee)), (x) => x.d, (x) => x.kcal - x.tdee, 'mean', g);

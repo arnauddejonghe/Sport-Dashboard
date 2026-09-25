@@ -101,6 +101,7 @@
     keyExercises: [],
     deadline: null,
     drive: { folder: 'Suivi sportif' },
+    plan: { dayStart: '06:30', dayEnd: '21:30', travelMin: 20, preferredStart: null, wake: '06:30' },
     journalTags: [],
     privacy: { hideTerms: [] },
   };
@@ -197,6 +198,15 @@
       else if (ema != null && lastW && nDays(lastW, x.d) <= 21) { x.trendW = Math.round(ema * 100) / 100; x.trendSrc = 'calculée'; }
     }
 
+    // Masse grasse et masse maigre (balance à impédance, bruitées) : même lissage exponentiel à 10 %
+    for (const [src, out] of [['bodyFat', 'bfT'], ['lean', 'leanT']]) {
+      let e = null, lastD = null;
+      for (const x of days) {
+        if (isNum(x[src])) { e = e == null || (lastD && nDays(lastD, x.d) > 21) ? x[src] : e + 0.1 * (x[src] - e); lastD = x.d; }
+        if (e != null && lastD && nDays(lastD, x.d) <= 21) x[out] = Math.round(e * 100) / 100;
+      }
+    }
+
     // Cibles nutrition (MacroFactor) : dernière mise à jour <= jour, même jour de semaine
     const upd = [];
     for (const t of [...raw.targets].sort((a, b) => a.d.localeCompare(b.d))) {
@@ -250,6 +260,7 @@
     };
     SD.M = M;
     if (SD.scores) SD.scores.enrich(M);
+    if (SD.plan) SD.plan.attach(M);
     return M;
   }
 
@@ -258,7 +269,7 @@
   const DEFAULT_STATE = {
     page: 'today', preset: '90j', from: null, to: null, day: null, wds: [0, 1, 2, 3, 4, 5, 6], dayKind: 'all', types: null, gran: 'auto',
     ex: null, exMetric: 'e1', corrX: 'sleepH', corrY: 'rec', corrLag: 0, measure: 'Tour de taille', macroView: 'g',
-    musSel: null, lever: 'trend', photoPose: 'all', photoMode: 'side',
+    musSel: null, musCount: 'frac', lever: 'trend', photoPose: 'all', photoMode: 'side', compShow: ['w', 'bf', 'lean'], keyEx: null,
     partialKcal: null, calMetric: 'score', analysis: { ma7: true, ma28: false, trend: false, band: true, minmax: false }, filtersOpen: false,
   };
   const S = (SD.S = JSON.parse(JSON.stringify(DEFAULT_STATE)));

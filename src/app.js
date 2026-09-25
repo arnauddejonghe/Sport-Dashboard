@@ -448,6 +448,7 @@
     showPage(SD.PAGES[hash] ? hash : S.page);
     SD.journal.init().then(() => SD.onJournal()).catch(() => null);
     SD.drive.init().catch(() => null);
+    if (SD.cal) SD.cal.init().catch(() => null);
     if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { renderTimeline(); refresh(); });
   }
 

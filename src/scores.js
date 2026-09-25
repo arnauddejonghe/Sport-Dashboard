@@ -124,7 +124,6 @@
     // 4) Récupération 0-100 : HRV (+), FC repos (−), respiration (−), performance du sommeil
     //    Z composite = Σ w·z / √Σw², puis 100 × Φ(Z) : un tiers des jours environ dans chaque zone.
     for (const x of days) {
-      if (x.partial) continue;
       const c = [];
       if (isNum(x.z.hrv)) c.push(['hrv', clamp(x.z.hrv, -3, 3), 0.45]);
       if (isNum(x.z.rhr)) c.push(['rhr', clamp(-x.z.rhr, -3, 3), 0.30]);
@@ -132,7 +131,10 @@
       if (isNum(x.sleepPerf)) c.push(['sleep', clamp((x.sleepPerf - 85) / 12, -3, 3), 0.15]);
       if (c.length < 2 || !c.some((q) => q[0] === 'hrv' || q[0] === 'rhr')) continue;
       const Z = sum(c.map((q) => q[1] * q[2])) / Math.sqrt(sum(c.map((q) => q[2] * q[2])));
-      x.rec = Math.round(100 * phi(clamp(Z, -3, 3)));
+      const r = Math.round(100 * phi(clamp(Z, -3, 3)));
+      // journée en cours (jour de l'export) : la nuit est complète, la journée non -> valeur « du matin », hors moyennes
+      if (x.partial) { x.recAM = r; x.recAMC = Object.fromEntries(c.map((q) => [q[0], q[1]])); continue; }
+      x.rec = r;
       x.recC = Object.fromEntries(c.map((q) => [q[0], q[1]]));
     }
 
@@ -167,7 +169,31 @@
       if (f.length) x.alert = { flags: f, level: f.length >= 2 ? 'crit' : 'warn' };
     }
 
-    // 8) Records personnels (e1RM au-dessus de tout l'historique précédent de l'exercice)
+    // 8) Effort musculation (séance) : séries de travail pondérées par la proximité de l'échec (RIR).
+    //    Une série compte d'autant plus qu'elle finit près de l'échec (méta-régressions dose-réponse, Robinson et al. 2024).
+    for (const x of days) {
+      if (!x.ex.length) continue;
+      let stim = 0, hard = 0, sets = 0, vol = 0, fail = 0, rirS = 0, rirN = 0;
+      for (const e of x.ex) {
+        const n = isNum(e.sets) ? e.sets : 0;
+        if (!n) continue;
+        sets += n; vol += isNum(e.vol) ? e.vol : 0; fail += e.fail || 0;
+        if (Array.isArray(e.ss) && e.ss.length) {
+          const f = n / e.ss.length; // séries unilatérales : une ligne par paire
+          for (const q of e.ss) { const w = rirWeight(q[2]); stim += w * f; if (!isNum(q[2]) || q[2] <= 3) hard += f; if (isNum(q[2])) { rirS += q[2] * f; rirN += f; } }
+        } else {
+          stim += n * rirWeight(e.rir); if (!isNum(e.rir) || e.rir <= 3) hard += n; if (isNum(e.rir)) { rirS += e.rir * n; rirN += n; }
+        }
+      }
+      if (sets > 0) x.eff = { stim: Math.round(stim * 10) / 10, hard: Math.round(hard * 10) / 10, sets: Math.round(sets * 10) / 10, vol: Math.round(vol), fail, rir: rirN ? Math.round((rirS / rirN) * 10) / 10 : null };
+    }
+    // zones personnelles : quartiles de tes 180 derniers jours de séances
+    const recent = days.filter((x) => x.eff && x.eff.stim >= 3 && SD.nDays(x.d, days[days.length - 1].d) <= 180).map((x) => x.eff.stim).sort((a, b) => a - b);
+    const q = (p) => recent[Math.min(recent.length - 1, Math.max(0, Math.round(p * (recent.length - 1))))];
+    M.effZones = recent.length >= 12 ? { p25: q(0.25), p50: q(0.5), p75: q(0.75), n: recent.length, personal: true } : { p25: 8, p50: 12, p75: 16, n: recent.length, personal: false };
+    for (const x of days) if (x.eff) x.eff.zone = effZone(x.eff.stim, M.effZones);
+
+    // 9) Records personnels (e1RM au-dessus de tout l'historique précédent de l'exercice)
     const best = new Map();
     for (const e of M.raw.exercises) {
       if (!isNum(e.e1)) continue;
@@ -179,20 +205,73 @@
   }
 
   // ================================================================ scores dépendant des réglages
+  /** Poids d'une série selon son RIR : 0 -> 1 ; 1 -> 0,95 ; 2 -> 0,85 ; 3 -> 0,7 ; 4 -> 0,5 ; 5 et plus -> 0,3 ; inconnu -> 0,8 */
+  function rirWeight(r) {
+    if (!isNum(r)) return 0.8;
+    return r <= 0 ? 1 : r <= 1 ? 0.95 : r <= 2 ? 0.85 : r <= 3 ? 0.7 : r <= 4 ? 0.5 : 0.3;
+  }
+  const EFF_ZONES = [['light', 'Légère'], ['mod', 'Modérée'], ['sus', 'Soutenue'], ['high', 'Élevée']];
+  const EFF_LABEL = Object.fromEntries(EFF_ZONES);
+  function effZone(stim, z) {
+    z = z || (SD.M && SD.M.effZones);
+    if (!isNum(stim) || !z) return null;
+    return stim < z.p25 ? 'light' : stim < z.p50 ? 'mod' : stim < z.p75 ? 'sus' : 'high';
+  }
+
+  // ---- notes neutres : chaque composante = % de ta propre cible, poids égaux
+  /** Nutrition : calories à ±5 % de la cible = 100, puis −5 pts par % d'écart ; protéines = % de la cible (plafond 100) */
+  function kcalAdh(x) {
+    if (!x.tgt || !isNum(x.tgt.kcal) || x.tgt.kcal <= 0 || !isNum(x.kcal)) return null;
+    const dev = Math.abs(x.kcal - x.tgt.kcal) / x.tgt.kcal * 100;
+    return clamp(100 - Math.max(0, dev - 5) * 5, 0, 100);
+  }
+  function protAdh(x) {
+    const pt = x.tgt && isNum(x.tgt.prot) ? x.tgt.prot : isNum(x.trendW) ? SD.M.cfg.targets.proteinPerKg[0] * x.trendW : null;
+    return isNum(x.prot) && pt ? Math.min(100, (x.prot / pt) * 100) : null;
+  }
   function nutriScore(x) {
     if (!SD.logged(x)) return null;
-    const parts = [];
-    if (x.tgt && isNum(x.tgt.kcal) && x.tgt.kcal > 0) parts.push([Math.max(0, 100 - (Math.abs(x.kcal - x.tgt.kcal) / x.tgt.kcal) * 400), 0.45]);
-    const pt = x.tgt && isNum(x.tgt.prot) ? x.tgt.prot : isNum(x.trendW) ? SD.M.cfg.targets.proteinPerKg[0] * x.trendW : null;
-    if (isNum(x.prot) && pt) parts.push([Math.min(100, (x.prot / pt) * 100), 0.40]);
-    if (isNum(x.fiber)) parts.push([Math.min(100, (x.fiber / 30) * 100), 0.15]);
-    if (!parts.length) return null;
-    return sum(parts.map((p) => p[0] * p[1])) / sum(parts.map((p) => p[1]));
+    const p = [kcalAdh(x), protAdh(x)].filter(isNum);
+    return p.length ? mean(p) : null;
+  }
+  /** Hydratation : boissons notées (Apple Santé) + eau des aliments (MacroFactor) vs cible du jour */
+  function hydroTarget(x) {
+    const kg = isNum(x.trendW) ? x.trendW : isNum(x.weight) ? x.weight : null;
+    if (!kg) return null;
+    // 35 ml/kg (EFSA 2010 : ~2,5 L/j d'apport total chez l'homme adulte, aliments compris) + 0,5 L par heure de musculation
+    return Math.round(kg * 35 + (x.strMin ? (x.strMin / 60) * 500 : 0));
+  }
+  /** Boissons réellement notées : l'eau d'Apple Santé contient déjà l'eau des aliments synchronisée par MacroFactor */
+  function drinks(x) {
+    if (!isNum(x.drink)) return null;
+    const d = x.drink - (isNum(x.water) ? x.water : 0);
+    return d > 100 ? d : null;
+  }
+  const hydroTotal = (x) => (drinks(x) != null ? x.drink : null);
+  function hydroScore(x) {
+    const tot = hydroTotal(x), t = hydroTarget(x);
+    return isNum(tot) && t ? Math.min(100, (tot / t) * 100) : null;
+  }
+  /** Entraînement : séries efficaces réalisées / prévues (programme), sinon vs ta séance médiane */
+  function trainScore(x) {
+    if (!x.eff) return null;
+    const ref = isNum(x.effPlan) ? x.effPlan : SD.M.effZones ? SD.M.effZones.p50 : null;
+    return ref ? Math.min(100, (x.eff.stim / ref) * 100) : null;
+  }
+  const stepsScore = (x) => (isNum(x.steps) && !x.partial ? Math.min(100, (x.steps / SD.M.cfg.targets.stepsGoal) * 100) : null);
+  /** Composantes de la note du jour (ce qui dépend de toi) ; la récupération est un état, elle n'entre pas dans la note */
+  function dayParts(x) {
+    return [
+      { k: 'sleep', l: 'Sommeil', v: x.sleepPerf, d: 'nuit vs ton besoin' },
+      { k: 'train', l: 'Entraînement', v: trainScore(x), d: isNum(x.effPlan) ? 'séries efficaces vs programme' : 'séries efficaces vs ta séance type' },
+      { k: 'nutri', l: 'Nutrition', v: nutriScore(x), d: 'calories ±5 % et protéines' },
+      { k: 'steps', l: 'Pas', v: stepsScore(x), d: 'vs objectif' },
+      { k: 'hydro', l: 'Hydratation', v: hydroScore(x), d: 'boissons + aliments vs cible' },
+    ];
   }
   function dayScore(x) {
-    const parts = [[x.rec, 0.3], [x.sleepPerf, 0.3], [nutriScore(x), 0.2], [x.actScore, 0.2]].filter((p) => isNum(p[0]));
-    if (parts.length < 2) return null;
-    return sum(parts.map((p) => p[0] * p[1])) / sum(parts.map((p) => p[1]));
+    const v = dayParts(x).map((p) => p.v).filter(isNum);
+    return v.length >= 2 ? mean(v) : null;
   }
   /** Charge conseillée (centre de la fourchette, ±7) selon la récupération : 38 en zone rouge basse, 86 à 100 % */
   function strainTarget(rec) {
@@ -225,13 +304,14 @@
   }
 
   // ================================================================ scores de période
+  // Poids égaux ; la récupération (état physiologique) est affichée mais n'entre pas dans la note globale
   const PILLARS = [
-    { key: 'recovery', label: 'Récupération', w: 20, color: 'rec' },
+    { key: 'recovery', label: 'Récupération', w: 0, color: 'rec', state: true },
     { key: 'sleep', label: 'Sommeil', w: 20, color: 'sleep' },
     { key: 'training', label: 'Entraînement', w: 20, color: 'strain' },
-    { key: 'nutrition', label: 'Nutrition', w: 15, color: 'nutri' },
-    { key: 'activity', label: 'Activité', w: 15, color: 'act' },
-    { key: 'body', label: 'Corps', w: 10, color: 'body' },
+    { key: 'nutrition', label: 'Nutrition', w: 20, color: 'nutri' },
+    { key: 'activity', label: 'Activité', w: 20, color: 'act' },
+    { key: 'body', label: 'Corps', w: 20, color: 'body' },
   ];
   const grade = (v) => (!isNum(v) ? '—' : v >= 90 ? 'A+' : v >= 80 ? 'A' : v >= 70 ? 'B' : v >= 60 ? 'C' : v >= 50 ? 'D' : 'E');
   const verdict = (v) => (!isNum(v) ? 'Pas assez de données'
@@ -258,31 +338,24 @@
     const perf = full.map((x) => x.sleepPerf).filter(isNum);
     const slept = full.map((x) => x.sleepH).filter(isNum);
     const cons = slept.length >= 5 ? Math.max(0, 100 - sdev(slept) * 60 * 0.83) : null;
-    out.sleep = perf.length >= 3 ? (cons != null ? 0.75 * mean(perf) + 0.25 * cons : mean(perf)) : null;
+    out.sleep = perf.length >= 3 ? mean(perf) : null;
     detail.sleep = perf.length ? `${SD.fH(mean(slept))} en moyenne · performance ${Math.round(mean(perf))} % · régularité ${cons != null ? Math.round(cons) : '—'}` : 'Pas de nuits enregistrées';
 
+    // Entraînement = moyenne de l'assiduité (séances / objectif) et de l'effort réalisé vs prévu (séries efficaces)
     const weeks = Math.max(1, ctx.len / 7);
     const perW = ctx.strengthDays.size / weeks;
-    const tParts = [[Math.min(100, (perW / cfg.sessionsPerWeek) * 100), 0.4]];
-    if (ctx.muscles && ctx.muscles.length) {
-      const tot = new Map();
-      for (const m of ctx.muscles) tot.set(m.m, (tot.get(m.m) || 0) + (m.sets || 0));
-      const core = ['Pectoraux', 'Dorsaux', 'Haut du dos', 'Quadriceps', 'Ischios', 'Fessiers', 'Deltoïdes lat.', 'Biceps', 'Triceps', 'Mollets', 'Deltoïdes post.'];
-      const [lo, hi] = cfg.setsPerMuscleWeek;
-      const s = core.filter((m) => tot.has(m)).map((m) => { const v = tot.get(m) / weeks; return v < lo ? v / lo : v > hi * 1.3 ? 0.8 : 1; });
-      if (s.length >= 5) tParts.push([mean(s) * 100, 0.3]);
-    }
+    const assid = Math.min(100, (perW / cfg.sessionsPerWeek) * 100);
+    const ts = days.map(trainScore).filter(isNum);
+    out.training = ctx.len >= 7 ? (ts.length ? mean([assid, mean(ts)]) : assid) : null;
     const si = strengthIndex(ctx.exercises || []);
-    if (isNum(si.delta)) tParts.push([clamp(60 + si.delta * 4, 0, 100), 0.3]);
-    out.training = ctx.len >= 7 ? sum(tParts.map((p) => p[0] * p[1])) / sum(tParts.map((p) => p[1])) : null;
-    detail.training = `${SD.nf(perW, 1)} séances / sem (objectif ${cfg.sessionsPerWeek})${isNum(si.delta) ? ` · indice de force ${SD.sgn(si.delta, 1)} pts` : ''}`;
+    detail.training = `${SD.nf(perW, 1)} séances / sem (objectif ${cfg.sessionsPerWeek})${ts.length ? ` · effort ${Math.round(mean(ts))} % du prévu` : ''}${isNum(si.delta) ? ` · indice de force ${SD.sgn(si.delta, 1)} pts` : ''}`;
 
     const ns = full.map(nutriScore).filter(isNum);
     const cov = full.length ? ns.length / full.length : 0;
-    out.nutrition = ns.length >= 3 ? 0.85 * mean(ns) + 0.15 * cov * 100 : null;
+    out.nutrition = ns.length >= 3 ? mean(ns) * Math.min(1, cov / 0.8) : null; // moins de 80 % des jours loggés : note réduite d'autant
     detail.nutrition = ns.length ? `${ns.length} jours loggés (${Math.round(cov * 100)} %) · score moyen ${Math.round(mean(ns))}` : 'Pas de journées loggées';
 
-    const act = full.map((x) => x.actScore).filter(isNum);
+    const act = full.map(stepsScore).filter(isNum);
     out.activity = act.length >= 3 ? mean(act) : null;
     const st = full.map((x) => x.steps).filter(isNum);
     detail.activity = st.length ? `${SD.nf(mean(st), 0)} pas / jour · ${Math.round((st.filter((v) => v >= cfg.stepsFloor).length / st.length) * 100)} % ≥ ${SD.nf(cfg.stepsFloor, 0)}` : 'Pas de données de pas';
@@ -313,7 +386,7 @@
       detail.body = isNum(rate) ? `${SD.sgn(rate, 2)} kg/sem (pas de cible de phase)` : 'Pas assez de pesées';
     }
 
-    const avail = PILLARS.filter((p) => isNum(out[p.key]));
+    const avail = PILLARS.filter((p) => p.w > 0 && isNum(out[p.key]));
     const global = avail.length >= 3 ? sum(avail.map((p) => out[p.key] * p.w)) / sum(avail.map((p) => p.w)) : null;
     const levers = avail.map((p) => ({ key: p.key, label: p.label, score: out[p.key], impact: (out[p.key] - 80) * p.w / 100 }))
       .sort((a, b) => a.impact - b.impact);
@@ -574,13 +647,14 @@
   }
 
   // ================================================================ projection du poids
-  function projection(endDate, target) {
+  function projection(endDate, target, key) {
     const M = SD.M;
+    key = key || 'trendW';
     const i1 = M.idx.has(endDate) ? M.idx.get(endDate) : M.days.length - 1;
-    const pts = M.days.slice(Math.max(0, i1 - 27), i1 + 1).filter((x) => isNum(x.trendW));
+    const pts = M.days.slice(Math.max(0, i1 - 27), i1 + 1).filter((x) => isNum(x[key]));
     if (pts.length < 14) return null;
     const x0 = SD.tms(pts[0].d);
-    const xs = pts.map((p) => (SD.tms(p.d) - x0) / SD.DAY), ys = pts.map((p) => p.trendW);
+    const xs = pts.map((p) => (SD.tms(p.d) - x0) / SD.DAY), ys = pts.map((p) => p[key]);
     const { a, b } = SD.linreg(xs, ys);
     const res = ys.map((y, i) => y - (a + b * xs[i]));
     const s = Math.sqrt(sum(res.map((r) => r * r)) / Math.max(1, ys.length - 2));
@@ -592,7 +666,7 @@
     // la projection part du dernier poids tendance (pas de la droite ajustée) et suit la pente des 28 jours
     for (let d = last.d; d <= tgt; d = SD.addD(d, 1)) {
       const h = (SD.tms(d) - SD.tms(last.d)) / SD.DAY;
-      const y = last.trendW + b * h;
+      const y = last[key] + b * h;
       // incertitude : erreur sur la pente, bruit autour de la tendance, dérive possible de la pente (0,05 kg/sem par semaine d'horizon)
       const e = 1.96 * Math.sqrt((seB * h) ** 2 + s * s * Math.min(1, h / 7)) + (0.05 / 7) * h;
       out.push({ d, y, lo: y - e, hi: y + e });
@@ -601,7 +675,7 @@
   }
 
   SD.scores = {
-    phi, robust, enrich, nutriScore, dayScore, strainTarget, strengthIndex, periodScores, PILLARS, grade, verdict,
+    phi, robust, enrich, nutriScore, dayScore, dayParts, trainScore, hydroTarget, hydroScore, hydroTotal, drinks, kcalAdh, protAdh, rirWeight, effZone, EFF_ZONES, EFF_LABEL, strainTarget, strengthIndex, periodScores, PILLARS, grade, verdict,
     recZone, strainZone, STRAIN_LABEL, STRAIN_ZONES, bioAge, bioAgeHistory, ageAt, biomarkers, BIOMARKERS, AUTO_TAGS, tagImpact, projection,
     FRIEND_REF: (age, sex) => interp(FRIEND[sex || 'male'], age),
   };

@@ -32,9 +32,10 @@
   function keyList(sumy) {
     const M = SD.M;
     let keys = [];
-    for (const n of M.cfg.keyExercises || []) { const o = sumy.find((x) => x.n === n); if (o) keys.push(o); }
-    if (keys.length < 4) for (const o of sumy.slice().sort((a, b) => b.count - a.count)) { if (keys.length >= 8) break; if (!keys.includes(o) && o.count >= 3) keys.push(o); }
-    return keys.slice(0, 8);
+    const chosen = Array.isArray(SD.S.keyEx) && SD.S.keyEx.length ? SD.S.keyEx : M.cfg.keyExercises || [];
+    for (const n of chosen) { const o = sumy.find((x) => x.n === n); if (o) keys.push(o); }
+    if (keys.length < 4 && !(Array.isArray(SD.S.keyEx) && SD.S.keyEx.length)) for (const o of sumy.slice().sort((a, b) => b.count - a.count)) { if (keys.length >= 8) break; if (!keys.includes(o) && o.count >= 3) keys.push(o); }
+    return keys.slice(0, 10);
   }
 
   const strength = {
@@ -45,9 +46,11 @@
         ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { h: 'tall' })}
         <section class="card c4"><div class="card-h"><div><h2 id="st-card-t">Fiche exercice</h2><p class="sub" id="st-card-s"></p></div></div><div id="st-card-b"></div></section>
         ${card('c4', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire')}
-        ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés')}
+        ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés', '<button type="button" class="btn sm" id="st-keyedit">Exercices clés</button>')}
+        <section class="card c12" id="st-keypanel" hidden><div class="card-h"><div><h2>Choisir les exercices clés</h2><p class="sub">Utilisés pour les exercices clés, la force relative et l’indice de force. Enregistré dans ce navigateur.</p></div>
+          <div class="card-tools"><button type="button" class="link" id="st-keyreset">Revenir à la configuration</button><button type="button" class="btn" id="st-keydone">Terminé</button></div></div><div class="keygrid" id="st-keylist"></div><p class="note" id="st-keypanel-n"></p></section>
         ${card('c4', 'st-pr', 'Records personnels', 'Records (e1RM au-dessus de tout l’historique de l’exercice) par mois')}
-        ${card('c6', 'st-mus', 'Volume par muscle', '', '', { h: 'tall' })}
+        ${card('c6', 'st-mus', 'Volume par muscle', '', seg('musCount', [['frac', 'Fractionné'], ['full', 'Plein']], S.musCount || 'frac'), { h: 'tall' })}
         ${card('c6', 'st-musw', 'Évolution par semaine', '', `<select class="fselect" id="st-mus-sel" data-state="musSel" aria-label="Muscle"></select>`, { h: 'tall' })}
         ${card('c12', 'st-must', 'Détail par muscle', 'Moyennes par semaine sur la période · effectives = directes + apport indirect · fréquence = jours par semaine où le muscle est travaillé en direct', '', { table: false, body: '<div class="tbl-wrap" id="st-must-b"></div>' })}
         ${card('c12', 'st-heat', 'Carte de chaleur des muscles', 'Séries effectives par semaine et par groupe musculaire')}
@@ -175,22 +178,29 @@
         series: [SD.bar('Records', prCount, T.good)],
       }) : base(SD.emptyOpt('Aucun record sur la période')), () => ({ cols: ['Mois', 'Records'], rows: mk2.map((m, i) => [SD.fdate(m, { month: 'long', year: 'numeric' }), prCount[i]]) }));
 
-      // ---- volume par muscle : direct / indirect
+      // ---- volume par muscle : direct / indirect ; comptage fractionné (½ série pour un muscle qui assiste) ou plein (1)
       const [lo, hi] = cfg.setsPerMuscleWeek;
       const wks = Math.max(1, F.len / 7);
       const agg = SD.muscles.aggregate(F.exercises, wks, F.muscles);
-      const mus = agg.rows.filter((q) => q.eff >= 0.1);
+      const full = S.musCount === 'full';
+      // prévu par semaine selon le programme actif (un cycle = 7 jours)
+      const prog = M.raw.program, planW = {};
+      if (prog && prog.cycles.length) {
+        const cyc = (M.programState && M.programState.cur ? prog.cycles[M.programState.cur.cycle - 1] : prog.cycles[0]) || prog.cycles[0];
+        for (const dd of cyc) for (const ex of dd.ex || []) { const c = SD.muscles.classify(ex.n); if (!c) continue; for (const m of c.p) planW[m] = (planW[m] || 0) + ex.sets.length; for (const m of c.s) planW[m] = (planW[m] || 0) + (full ? 1 : 0.5) * ex.sets.length; }
+      }
+      const mus = agg.rows.filter((q) => q.eff >= 0.1).map((q) => Object.assign({}, q, full ? { indirect: q.indirect * 2, eff: q.direct + q.indirect * 2 } : {}, { plan: planW[q.m] || null }));
       const status = (q) => (q.eff < lo ? ['warn', 'Sous la cible'] : q.eff > hi ? ['ok', 'Au-dessus'] : ['good', 'Dans la cible']);
       const IND = 'rgba(46,155,255,0.38)';
-      setText('st-mus-s', `Séries par semaine · plein = séries directes (muscle moteur), clair = apport indirect (½ série quand le muscle assiste, chiffres MacroFactor quand ils existent) · bande = cible ${lo}–${hi} séries effectives`);
+      setText('st-mus-s', `Séries par semaine sur la période · foncé = séries directes (muscle moteur), clair = apport indirect (${full ? '1 série par muscle qui assiste, comme la plupart des apps' : '½ série quand le muscle assiste, comme MacroFactor et la méta-analyse de Pelland et al. 2024'}) · ◆ = prévu par ton programme actuel · bande = cible ${lo}–${hi}${full ? ' (définie en comptage fractionné)' : ''}`);
       const musEl = document.getElementById('st-mus');
       if (musEl) musEl.style.height = Math.max(280, mus.length * 24 + 50) + 'px';
       chart('st-mus', mus.length ? base({
         grid: { left: 16, right: 46, top: 30, bottom: 6, containLabel: true },
-        legend: SD.ui.ecLegend(T, ['Directes', 'Apport indirect']),
+        legend: SD.ui.ecLegend(T, ['Directes', 'Apport indirect', 'Prévu (programme)']),
         tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => { const q = mus[p.dataIndex]; return tipBox(q.m, [
           { color: T.strain, box: true, value: nf(q.direct, 1), name: 'séries directes / sem' }, { color: IND, box: true, value: nf(q.indirect, 1), name: 'apport indirect / sem' },
-          { color: T.ink, value: nf(q.eff, 1), name: 'séries effectives' }, { color: T.muted, value: nf(q.freq, 1) + ' j / sem', name: 'fréquence directe' },
+          { color: T.ink, value: nf(q.eff, 1), name: full ? 'séries (comptage plein)' : 'séries effectives' }, { color: T.ink, value: isNum(q.plan) ? nf(q.plan, 1) : '—', name: 'prévu par le programme' }, { color: T.muted, value: nf(q.freq, 1) + ' j / sem', name: 'fréquence directe' },
           { color: T.muted, value: nf(q.tonD, 0) + ' + ' + nf(q.tonI, 0) + ' kg', name: 'tonnage direct + indirect / sem' }], `${status(q)[1]} (cible ${lo}–${hi})`); } }),
         xAxis: yVal({ splitLine: { lineStyle: { color: T.grid } } }),
         yAxis: xCat(mus.map((q) => q.m), { inverse: true, axisLine: { show: false }, axisLabel: { color: T.ink2, fontSize: 12 } }),
@@ -199,9 +209,34 @@
             markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.07)' }, label: { show: true, position: 'insideTop', color: T.muted, fontSize: 10.5, formatter: `cible ${lo}–${hi}` }, data: [[{ xAxis: lo }, { xAxis: hi }]] } },
           { name: 'Apport indirect', type: 'bar', stack: 'v', barMaxWidth: 14, itemStyle: { color: IND }, data: mus.map((q) => ({ value: +q.indirect.toFixed(1), itemStyle: { color: IND, borderRadius: [0, 4, 4, 0] } })),
             label: { show: true, position: 'right', color: T.ink2, fontSize: 11, formatter: (p) => nf(mus[p.dataIndex].eff, 1) } },
+          { name: 'Prévu (programme)', type: 'scatter', symbol: 'diamond', symbolSize: 10, itemStyle: { color: T.ink }, z: 5, data: mus.map((q) => (isNum(q.plan) ? q.plan : null)) },
         ],
       }) : base(SD.emptyOpt('Aucun exercice détaillé sur la période')), () => ({ cols: ['Muscle', 'Directes / sem', 'Apport indirect / sem', 'Effectives / sem'], rows: mus.map((q) => [q.m, nf(q.direct, 1), nf(q.indirect, 1), nf(q.eff, 1)]) }));
       if (SD.charts.get('st-mus')) SD.charts.get('st-mus').resize();
+
+      // ---- éditeur des exercices clés
+      const panel = document.getElementById('st-keypanel');
+      const drawKeys = () => {
+        const byName = new Map();
+        for (const o of M.exIndex.values()) { const c = byName.get(o.n) || { n: o.n, count: 0, last: o.last }; c.count += o.count; if (o.last > c.last) c.last = o.last; byName.set(o.n, c); }
+        const all = [...byName.values()].filter((o) => o.count >= 2).sort((a, b) => (b.last >= SD.addD(M.last, -60)) - (a.last >= SD.addD(M.last, -60)) || b.count - a.count);
+        const cur = new Set(keys.map((k) => k.n));
+        document.getElementById('st-keylist').innerHTML = all.map((o) => `<label class="kchk"><input type="checkbox" value="${esc(o.n)}"${cur.has(o.n) ? ' checked' : ''}><span>${esc(o.n)}<small>${o.count} séances · dernière ${esc(fdM(o.last))}</small></span></label>`).join('');
+        document.querySelectorAll('#st-keylist input').forEach((inp) => {
+          inp.onchange = () => {
+            const on = [...document.querySelectorAll('#st-keylist input:checked')].map((i) => i.value);
+            if (on.length > 10) { inp.checked = false; setText('st-keypanel-n', '10 exercices clés au maximum : décoche-en un d’abord.'); return; }
+            setText('st-keypanel-n', `${on.length} exercice${on.length > 1 ? 's' : ''} choisi${on.length > 1 ? 's' : ''}.`);
+            S.keyEx = on; SD.saveState();
+          };
+        });
+      };
+      const ke = document.getElementById('st-keyedit');
+      if (ke) ke.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) { drawKeys(); panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } };
+      const kd = document.getElementById('st-keydone');
+      if (kd) kd.onclick = () => { panel.hidden = true; SD.refresh(); };
+      const kr = document.getElementById('st-keyreset');
+      if (kr) kr.onclick = () => { S.keyEx = null; SD.saveState(); panel.hidden = true; SD.refresh(); };
 
       // ---- évolution d'un muscle
       const msel = document.getElementById('st-mus-sel');

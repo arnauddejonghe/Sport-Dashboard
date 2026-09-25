@@ -152,7 +152,7 @@
     'fiber (g)': ['fiber', 'num'],
     'dietary sugar (g)': ['sugar', 'num'],
     'sodium (mg)': ['sodium', 'num'],
-    'water (ml)': ['water', 'num'],
+    'water (ml)': ['drink', 'num'],
     'caffeine (mg)': ['caffeine', 'num'],
     'mindful minutes': ['mindful', 'minutes'],
     'state of mind': ['mood', 'mood'],
@@ -260,12 +260,18 @@
    * Date, Heure, Note/Notes/Texte, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>.
    * Plusieurs lignes le même jour (raccourci Apple, formulaire) sont regroupées.
    */
+  /**
+   * Journal (feuille Google « Retours… » ou CSV) : une ligne par entrée, plusieurs par jour possibles.
+   * Colonnes reconnues (ordre libre) : Date, Heure, Source, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>, Modifié.
+   * Source « app » = entrée saisie dans le dashboard (une par jour) ; les autres (manuel, raccourci, make…) s'ajoutent.
+   */
   function parseNotesCSV(text, fileName) {
     const first = text.split(/\r?\n/)[0];
     const rows = parseCSV(text, (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',');
     const hdr = rows[0].map(normHeader);
     const find = (re) => hdr.findIndex((h) => re.test(h));
     const iD = find(/^(date|jour)$/), iN = find(/^(notes?|texte|commentaires?|ressenti)$/), iTg = find(/^(tags?|[ée]tiquettes?)$/);
+    const iSrc = find(/^source$/), iH = find(/^(heure|time)$/), iMod = find(/^(modifi[ée]|updated|mis [àa] jour)/);
     const SC = { mood: find(/^humeur|^mood/), energy: find(/^[ée]nergie|^energy/), stress: find(/^stress/), soreness: find(/^courbature|^soreness/) };
     const pains = hdr.map((h, i) => [h, i]).filter(([h]) => /^douleur/.test(h)).map(([h, i]) => [h.replace(/^douleurs?\s*/, '').replace(/^./, (c) => c.toUpperCase()) || 'Générale', i]);
     const notes = [];
@@ -275,15 +281,26 @@
       const d = toISODate(row[iD]);
       if (!d) continue;
       const t = iN >= 0 ? String(row[iN] || '').trim() : '';
-      if (t) notes.push({ d, src: 'journal', text: t });
-      const e = byDay[d] || (byDay[d] = { d, texts: [], tags: [], pain: {} });
-      if (t) e.texts.push(t);
-      for (const tg of (iTg >= 0 ? tagsFrom(row[iTg]) : []).concat(tagsFrom(t, true))) if (!e.tags.some((x) => x.id === tg.id)) e.tags.push(tg);
-      for (const [k, i] of Object.entries(SC)) { const v = i >= 0 ? num(row[i]) : null; if (v != null) e[k] = Math.max(1, Math.min(5, Math.round(v))); }
-      for (const [site, i] of pains) { const v = num(row[i]); if (v != null) e.pain[site] = Math.max(0, Math.min(10, v)); }
+      const src = iSrc >= 0 ? String(row[iSrc] || '').trim().toLowerCase() || 'manuel' : 'manuel';
+      const tg = (iTg >= 0 ? tagsFrom(row[iTg]) : []).concat(tagsFrom(t, true));
+      const rec = { src, time: iH >= 0 ? String(row[iH] || '').slice(0, 5) : '', text: t, tags: [], tagLabels: {}, pain: {}, mod: iMod >= 0 ? String(row[iMod] || '').trim() : '' };
+      for (const x of tg) if (!rec.tags.includes(x.id)) { rec.tags.push(x.id); rec.tagLabels[x.id] = x.label; }
+      for (const [k, i] of Object.entries(SC)) { const v = i >= 0 ? num(row[i]) : null; if (v != null) rec[k] = Math.max(1, Math.min(5, Math.round(v))); }
+      for (const [site, i] of pains) { const v = num(row[i]); if (v != null) rec.pain[site] = Math.max(0, Math.min(10, v)); }
+      const empty = !rec.text && !rec.tags.length && !Object.keys(rec.pain).length && !['mood', 'energy', 'stress', 'soreness'].some((k) => rec[k] != null);
+      if (empty) continue;
+      if (t && src !== 'app') notes.push({ d, src: 'journal', text: t });
+      (byDay[d] || (byDay[d] = [])).push(rec);
     }
-    const jentries = Object.values(byDay).filter((e) => e.texts.length || e.tags.length || Object.keys(e.pain).length || ['mood', 'energy', 'stress', 'soreness'].some((k) => e[k] != null))
-      .map((e) => ({ d: e.d, text: e.texts.join(' · '), tags: e.tags.map((x) => x.id), tagLabels: Object.fromEntries(e.tags.map((x) => [x.id, x.label])), mood: e.mood, energy: e.energy, stress: e.stress, soreness: e.soreness, pain: e.pain, src: 'feuille' }));
+    const jentries = Object.entries(byDay).map(([d, rs]) => {
+      const e = { d, text: rs.map((x) => x.text).filter(Boolean).join(' · '), tags: [], tagLabels: {}, pain: {}, src: 'feuille', rows: rs };
+      for (const x of rs) {
+        for (const id of x.tags) if (!e.tags.includes(id)) { e.tags.push(id); e.tagLabels[id] = x.tagLabels[id]; }
+        for (const k of ['mood', 'energy', 'stress', 'soreness']) if (x[k] != null) e[k] = x[k];
+        Object.assign(e.pain, x.pain);
+      }
+      return e;
+    });
     return { kind: 'notes', fileName, notes, jentries };
   }
 
@@ -291,12 +308,20 @@
 
   // Le dashboard ne reprend que le verdict, les scores et les points forts / faibles du rapport. Toute phrase qui
   // contient un terme médical, ou un terme de la configuration privée (privacy.hideTerms, hors git), est retirée.
-  const MEDICAL = /(m[ée]dicament|traitement|ordonnance|posologie|prescri|injection|\bdoses?\b|hormon|pharmac|m[ée]decin)/i;
+  const MEDICAL = /(m[ée]dicament|traitement|ordonnance|posologie|prescri|injection|\bdoses?\b|hormon|pharmac|m[ée]decin|anti-?inflammatoire|\bains\b|diclof|ibupro|parac[ée]tamol|cortico|infiltration)/i;
   let hideRe = null;
   /** Termes supplémentaires à masquer (expressions régulières, insensibles à la casse), lus dans la config privée. */
   function setPrivacyTerms(terms) {
     const list = (Array.isArray(terms) ? terms : []).map((t) => String(t).trim()).filter(Boolean);
     try { hideRe = list.length ? new RegExp('(' + list.join('|') + ')', 'i') : null; } catch (e) { hideRe = null; }
+  }
+  /** Retire les termes sensibles d'un nom court (programme, séance, événement) au lieu de supprimer toute la phrase. */
+  function maskSensitive(t) {
+    let s = String(t || '');
+    const g = (re) => new RegExp(re.source, 'gi');
+    s = s.replace(g(MEDICAL), '');
+    if (hideRe) s = s.replace(g(hideRe), '');
+    return s.replace(/\s*-\s*(?=-|$)/g, '').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').replace(/^[\s\-|:]+|[\s\-|:]+$/g, '').trim();
   }
   const cleanSensitive = (t) => String(t || '')
     .split(/(?<=[.!?])\s+/)
@@ -341,12 +366,34 @@
       }
       return out.map(cleanSensitive).filter(Boolean);
     };
+    // lignes « TITRE : texte » (cible de pas, nutrition, décision, priorité) et bloc « DÉCISION D'ENTRAÎNEMENT — … »
+    const up = (l) => l.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’`]/g, "'");
+    const lineAfter = (re) => { const l = lines.find((x) => re.test(up(x))); return l ? cleanSensitive(l.replace(/^[^:]*:\s*/, '')) : ''; };
+    let plan = null;
+    const pi = lines.findIndex((l) => /^DECISION D'ENTRAINEMENT/.test(up(l)));
+    if (pi >= 0) {
+      const title = cleanSensitive(lines[pi].replace(/^[^—:–-]*[—:–-]\s*/, '').trim());
+      const body = [];
+      for (let j = pi + 1; j < lines.length; j++) {
+        const l = lines[j].trim();
+        if (!l) { if (body.length) break; continue; }
+        if (/^[A-ZÉÈÀÂÎÔÛÇ' ]{6,}(\s*[:—].*)?$/.test(l) && !/^[-•]/.test(l) && /^[A-ZÉÈÀÂÎÔÛÇ' ]{6,}/.test(l) && l === l.toUpperCase()) break;
+        const c = cleanSensitive(l.replace(/^[-•]\s*/, ''));
+        if (c) body.push(c);
+      }
+      plan = { title, lines: body.slice(0, 12) };
+    }
     const entry = {
       d, rank: info.rank || 100,
       verdict: cleanSensitive(verdictLine ? verdictLine.replace(/^\s*VERDICT\s*:\s*/i, '') : ''),
       scores,
       good: section('CE QUI FONCTIONNE BIEN').slice(0, 4),
       bad: section('CE QUI NE FONCTIONNE PAS').slice(0, 4),
+      plan,
+      steps: lineAfter(/^CIBLE DE PAS\b/),
+      nutri: lineAfter(/^NUTRITION\b/),
+      decision: lineAfter(/^DECISION\s*:/),
+      priority: lineAfter(/^PRIORITE A FORT IMPACT/),
     };
     return { kind: 'coach', fileName, exportedAt: exportDateFromName(fileName), entries: [entry] };
   }
@@ -637,7 +684,8 @@
         const d = toISODate(wl[r][iD], XLSX);
         const n = cleanExName(wl[r][iE]);
         if (!d || !n) continue;
-        if (iWD >= 0 && typeof wl[r][iWD] === 'number') { const w = wdur[d] || (wdur[d] = {}); w[String(iWo >= 0 ? wl[r][iWo] : '') || '·'] = wl[r][iWD]; }
+        if (iWD >= 0 && typeof wl[r][iWD] === 'number') { const w = wdur[d] || (wdur[d] = {}); w[String(iWo >= 0 ? wl[r][iWo] || '' : '') || '·'] = wl[r][iWD]; }
+        else if (iWo >= 0 && wl[r][iWo]) { const w = wdur[d] || (wdur[d] = {}); const nm = String(wl[r][iWo]); if (!(nm in w)) w[nm] = 0; }
         const raw = String(wl[r][iT] || 'Standard Set');
         const side = (raw.match(/\((L|R)\)\s*$/) || [])[1] || '';
         const type = raw.replace(/\s*\((L|R)\)\s*$/, '').trim();
@@ -650,8 +698,13 @@
         const timed = !reps && iDur >= 0 && typeof wl[r][iDur] === 'number' && wl[r][iDur] > 0;
         if (typeof wl[r][iR] !== 'number' && !timed) continue; // ligne vide ; une série à 0 répétition (échec) compte, comme dans MacroFactor
         const k = d + '|' + n;
-        const o = logEx[k] || (logEx[k] = { d, n, sets: 0, reps: 0, vol: 0, hw: 0, br: 0, bsv: 0, bw: 0, rirs: [] });
+        const o = logEx[k] || (logEx[k] = { d, n, sets: 0, reps: 0, vol: 0, hw: 0, br: 0, bsv: 0, bw: 0, rirs: [], ss: [] });
         if (!cont) o.sets += side ? 0.5 : 1;
+        // détail des séries de travail (une ligne par série comptée ; côté droit ignoré pour ne pas doubler)
+        if (!cont && side !== 'R') {
+          const rv = iRir >= 0 && typeof wl[r][iRir] === 'number' ? wl[r][iRir] : /failure/i.test(type) ? 0 : null;
+          o.ss.push(timed ? [0, 0, rv, wl[r][iDur]] : [w, reps, rv]);
+        }
         if (!reps) continue;
         const wph = w / (isPairDB(n) ? 2 : 1);
         o.reps += reps; o.vol += w * reps; o.hw = Math.max(o.hw, wph);
@@ -665,13 +718,50 @@
       for (const [k, o] of Object.entries(logEx)) {
         exercises[k] = { d: o.d, n: o.n, s: 'MF', sets: r1(o.sets, 1), reps: o.reps, vol: r1(o.vol, 0), hw: o.hw > 0 ? r1(o.hw, 1) : null, br: o.br || null,
           e1: o.bw > 0 ? r1(epley(o.bw, o.br), 1) : null,
-          rir: o.rirs.length ? r1(o.rirs.reduce((a, b) => a + b, 0) / o.rirs.length, 1) : null, fail: o.rirs.filter((x) => x === 0).length };
+          rir: o.rirs.length ? r1(o.rirs.reduce((a, b) => a + b, 0) / o.rirs.length, 1) : null, fail: o.rirs.filter((x) => x === 0).length, ss: o.ss.slice(0, 12) };
       }
       // durée de séance (secondes par séance, plusieurs séances possibles le même jour)
       for (const [d, w] of Object.entries(wdur)) {
         const sec = Object.values(w).reduce((a, b) => a + b, 0);
-        if (sec > 0) sessions.push({ d, min: Math.round(sec / 60) });
+        // nom de séance MacroFactor « Programme (Jour) » ; les termes sensibles du nom de programme sont retirés
+        const ws = Object.keys(w).filter((nm) => nm !== '·').map((nm) => {
+          const m = nm.match(/^(.*?)\s*\(([^()]+)\)\s*$/);
+          return { prog: maskSensitive(m ? m[1] : nm), day: m ? m[2].trim() : null, min: w[nm] > 0 ? Math.round(w[nm] / 60) : null };
+        });
+        sessions.push({ d, min: sec > 0 ? Math.round(sec / 60) : null, w: ws });
       }
+    }
+
+    // Programme actif (export rapide) : cycles de jours (« Rest » ou séance) avec exercices, séries, fourchettes, RIR, repos, consignes
+    let program = null;
+    const ap = sheetRows(wb, XLSX, 'Active Program');
+    if (ap && ap.length > 2) {
+      const head = (ap[0] || []).map((c) => String(c || ''));
+      const val = (re) => { const c = head.find((x) => re.test(x)); return c ? c.replace(re, '').trim() : null; };
+      const dl = val(/^Deload:\s*/i);
+      program = { name: maskSensitive(val(/^Program:\s*/i) || 'Programme'), cycles: [], deload: dl && !/^none$/i.test(dl) ? dl : null, exportedAt: exportDateFromName(fileName) };
+      let cyc = null, day = null;
+      const note = (t) => cleanSensitive(String(t || '').replace(/^[A-ZÀ-Ü' ]{3,}\s*\|\s*/, '')).slice(0, 240);
+      for (let r = 1; r < ap.length; r++) {
+        const row = ap[r] || [];
+        const c0 = row[0] == null ? '' : String(row[0]).trim();
+        if (/^Block\s+\d+/i.test(c0)) continue;
+        if (/^Cycle\s+\d+/i.test(c0)) { cyc = []; program.cycles.push(cyc); day = null; continue; }
+        if (!cyc) continue;
+        if (c0) { day = { day: c0, rest: /^rest$/i.test(c0), ex: [] }; cyc.push(day); }
+        if (!day || day.rest || !row[1]) continue;
+        if (/^yes$/i.test(String(row[2] || ''))) continue; // exercice sauté dans le programme
+        const rawName = String(row[1]);
+        const ssm = rawName.match(/∈\s*(SS\d+)/);
+        const sets = [];
+        for (let c = 4; c + 1 < row.length; c += 4) {
+          if (!row[c]) continue;
+          const rg = String(row[c + 1] || '').match(/(\d+)\s*-\s*(\d+)/) || String(row[c + 1] || '').match(/(\d+)/);
+          sets.push({ type: String(row[c]).replace(/\s*Set$/i, ''), lo: rg ? +rg[1] : null, hi: rg ? +(rg[2] || rg[1]) : null, rir: typeof row[c + 2] === 'number' ? row[c + 2] : null, rest: typeof row[c + 3] === 'number' ? row[c + 3] : null });
+        }
+        day.ex.push({ n: cleanExName(rawName), ss: ssm ? ssm[1] : null, sets, note: note(row[3]), timed: /wall sit|plank|gainage|hold/i.test(rawName) });
+      }
+      if (!program.cycles.length) program = null;
     }
 
     // Mensurations
@@ -715,12 +805,14 @@
     const wln = sheetRows(wb, XLSX, 'Workout Log Notes');
     if (wln) for (let r = 1; r < wln.length; r++) {
       const d = toISODate(wln[r][0], XLSX);
-      if (d && wln[r][2]) notes.push({ d, src: 'séance', ex: wln[r][1] || '', text: String(wln[r][2]).trim() });
+      const t = d && wln[r][2] ? cleanSensitive(String(wln[r][2]).trim()) : '';
+      if (t) notes.push({ d, src: 'séance', ex: wln[r][1] || '', text: t });
     }
     const fln = sheetRows(wb, XLSX, 'Food Log Notes');
     if (fln) for (let r = 1; r < fln.length; r++) {
       const d = toISODate(fln[r][0], XLSX);
-      if (d && fln[r][2]) notes.push({ d, src: 'nutrition', ex: fln[r][1] || '', text: String(fln[r][2]).trim() });
+      const t = d && fln[r][2] ? cleanSensitive(String(fln[r][2]).trim()) : '';
+      if (t) notes.push({ d, src: 'nutrition', ex: fln[r][1] || '', text: t });
     }
 
     // Profil (uniquement ce qui sert aux calculs : taille, année de naissance, prénom)
@@ -742,7 +834,7 @@
     return {
       kind: 'macrofactor', fileName, exportedAt: exportDateFromName(fileName),
       days, targets, muscles: Object.values(muscles), exercises: Object.values(exercises),
-      body, phases, notes, profile, sessions,
+      body, phases, notes, profile, sessions, program,
     };
   }
 
@@ -880,7 +972,8 @@
     // 2) MacroFactor : plusieurs exports possibles (complet, partiel). Du plus ancien au plus récent,
     //    chaque export remplace les dates qu'il couvre ; les feuilles absentes d'un export partiel ne vident rien.
     const mfParts = byKind('macrofactor');
-    let targets = [], muscles = [], exercises = [], body = [], phases = [], notes = [], profile = null;
+    let targets = [], muscles = [], exercises = [], body = [], phases = [], notes = [], profile = null, program = null;
+    const mfSess = {};
     const span = (arr) => (arr.length ? [arr.reduce((m, x) => (x.d < m ? x.d : m), arr[0].d), arr.reduce((m, x) => (x.d > m ? x.d : m), arr[0].d)] : null);
     const outside = (r) => (x) => !r || x.d < r[0] || x.d > r[1];
     for (const mf of mfParts) {
@@ -905,6 +998,8 @@
       const seenN = new Set(notes.map((n) => n.d + '|' + n.text));
       for (const n of mf.notes) if (!seenN.has(n.d + '|' + n.text)) notes.push(n);
       if (mf.profile) profile = mf.profile;
+      if (mf.program) program = mf.program;
+      for (const s of mf.sessions || []) mfSess[s.d] = s;
     }
 
     // 3) TrainAI
@@ -1041,6 +1136,8 @@
       phases: phases.sort((a, b) => a.start.localeCompare(b.start)),
       notes: notes.sort((a, b) => a.d.localeCompare(b.d)),
       jsheet: Object.values(jsheet).sort((a, b) => a.d.localeCompare(b.d)),
+      program,
+      mfSessions: Object.values(mfSess).sort((a, b) => a.d.localeCompare(b.d)),
       coach,
       labs,
       sessionStarts,
@@ -1124,13 +1221,15 @@
       coach: mergeCoach(base.coach || [], add.coach || []),
       labs: mergeLabs(base.labs || [], add.labs || []),
       jsheet: (() => { const m = new Map((base.jsheet || []).map((e) => [e.d, e])); for (const e of add.jsheet || []) m.set(e.d, e); return [...m.values()].sort((a, b) => a.d.localeCompare(b.d)); })(),
+      program: add.program || base.program || null,
+      mfSessions: (() => { const m = new Map((base.mfSessions || []).map((e) => [e.d, e])); for (const e of add.mfSessions || []) m.set(e.d, e); return [...m.values()].sort((a, b) => a.d.localeCompare(b.d)); })(),
       sessionStarts: tR ? base.sessionStarts.filter((s) => !inR(s.d, tR)).concat(add.sessionStarts) : base.sessionStarts,
     });
   }
 
   return {
     parseCSV, parseHealthCSV, parseNotesCSV, parseCoachMD, parseLabsCSV, parseMacroFactor, parseTrainAI, parseFile, mergeParsed, overlayDataset,
-    coachFileInfo, cleanSensitive, setPrivacyTerms, tagsFrom, slugTag,
+    coachFileInfo, cleanSensitive, maskSensitive, setPrivacyTerms, tagsFrom, slugTag, isPairDB, cleanExName,
     isMacroFactor, isTrainAI, exportDateFromName,
     _internal: { num, range, duration, toISODate, epley },
   };

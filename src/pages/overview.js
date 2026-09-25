@@ -42,14 +42,14 @@
       setHTML('ov-ring', ring({ value: cur.global, max: 100, color: SD.scoreColor(cur.global), text: cur.grade, unit: isNum(cur.global) ? `${nf(cur.global, 0)} / 100` : '', label: 'Période', size: 172, stroke: 11, cls: 'xl' }));
       setText('ov-period', `${fdM(S.from)} → ${fdM(S.to)} · ${F.days.length} jours${prev && isNum(prev.global) ? ` · période précédente ${nf(prev.global, 0)} (${prev.grade})` : ''}`);
       setText('ov-verdict', cur.verdict);
-      setText('ov-verdict-sub', isNum(cur.global) && prev && isNum(prev.global) ? `${sgn(cur.global - prev.global, 0)} points par rapport à la période précédente.` : 'Pondération : récupération 20 %, sommeil 20 %, entraînement 20 %, nutrition 15 %, activité 15 %, corps 10 %.');
+      setText('ov-verdict-sub', isNum(cur.global) && prev && isNum(prev.global) ? `${sgn(cur.global - prev.global, 0)} points par rapport à la période précédente.` : 'Note = moyenne à poids égaux de ce qui dépend de toi : sommeil, entraînement, nutrition, activité, corps. La récupération est un état : affichée, hors note.');
       setHTML('ov-levers', cur.up.map((l) => `<span class="lever up">Tire vers le haut : <b>${esc(l.label)} ${nf(l.score, 0)}</b></span>`).join('')
         + cur.down.map((l) => `<span class="lever down">Freine : <b>${esc(l.label)} ${nf(l.score, 0)}</b></span>`).join(''));
       setHTML('ov-pillars', SD.scores.PILLARS.map((p) => {
         const v = cur.pillars[p.key], pv = prev ? prev.pillars[p.key] : null;
         const dl = isNum(v) && isNum(pv) ? v - pv : null;
         return `<div class="pillar" data-goto="${PAGE_OF[p.key]}" title="${esc(cur.detail[p.key])}">${ring({ value: v, max: 100, color: SD.pillarColor(p.key), text: isNum(v) ? nf(v, 0) : null, label: p.label, size: 92, stroke: 9, cls: 'sm' })}
-          <div class="dl delta ${isNum(dl) ? (dl > 1 ? 'up-good' : dl < -1 ? 'down-bad' : 'flat') : 'flat'}">${isNum(dl) ? sgn(dl, 0) + ' vs préc.' : '&nbsp;'}</div><div class="d">${esc(cur.detail[p.key])}</div></div>`;
+          <div class="dl delta ${isNum(dl) ? (dl > 1 ? 'up-good' : dl < -1 ? 'down-bad' : 'flat') : 'flat'}">${isNum(dl) ? sgn(dl, 0) + ' vs préc.' : '&nbsp;'}</div><div class="d">${p.state ? 'État, hors note · ' : ''}${esc(cur.detail[p.key])}</div></div>`;
       }).join(''));
       document.querySelectorAll('#ov-pillars [data-goto]').forEach((el) => { el.onclick = () => SD.showPage(el.dataset.goto); });
 
