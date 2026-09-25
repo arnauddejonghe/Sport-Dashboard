@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Salle des Machines</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+<div id="app" class="shell" hidden>
+  <aside class="side" aria-label="Navigation">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/></svg>
+      </div>
+      <div><b>Salle des Machines</b><span id="brand-sub"></span></div>
+    </div>
+    <nav class="nav" id="nav" aria-label="Pages"></nav>
+    <div class="side-foot"><div class="sync" id="sync" hidden></div></div>
+  </aside>
+
+  <div class="main">
+    <div class="wrap"><nav class="mnav" id="mnav" aria-label="Pages"></nav></div>
+    <header class="wrap topbar">
+      <div>
+        <h1 id="page-title"></h1>
+        <p class="sub" id="page-sub"></p>
+      </div>
+      <div class="top-actions">
+        <span class="pill" id="fresh"></span>
+        <span class="pill" id="deadline" hidden></span>
+        <span class="pill" id="sync-top" hidden></span>
+        <button type="button" class="btn" id="import-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Données</button>
+      </div>
+    </header>
+    <section class="wrap filters" id="filters" aria-label="Filtres">
+      <div id="fbody"></div>
+      <div class="timeline" id="timeline" aria-label="Chronologie : fais glisser les poignées pour choisir la période"></div>
+    </section>
+    <main class="wrap view" id="view"></main>
+  </div>
+</div>
+
+<div id="onboarding" class="wrap" hidden style="padding-block:48px">
+  <div class="brand" style="margin-bottom:24px">
+    <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/></svg></div>
+    <div><b>Salle des Machines</b><span>Aucune donnée chargée pour l’instant.</span></div>
+  </div>
+  <section class="card" style="max-width:720px">
+    <div class="card-h"><div><h2>Charger tes exports</h2><p class="sub">Les fichiers sont lus dans ton navigateur ; rien n’est envoyé sur un serveur.</p></div></div>
+    <label class="drop" id="ob-drop" for="ob-file"><input type="file" id="ob-file" multiple accept=".csv,.xlsx,.md"><strong>Glisse tes fichiers ici</strong> ou clique pour les choisir<br><span class="fsummary">Apple Santé (Health Export, .csv) · MacroFactor (.xlsx ou .csv) · TrainAI (.xlsx) · journal coach (.md) · prises de sang (.csv)</span></label>
+    <ul class="log" id="ob-log"></ul>
+    <p class="note">Ou, en local : dépose les exports dans <code>data/raw/</code> puis lance <code>npm run build</code>.</p>
+  </section>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+  <button type="button" class="btn icon-btn drawer-close" id="drawer-close" aria-label="Fermer">✕</button>
+  <div id="drawer-body"></div>
+</aside>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script>window.echarts||document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"><\/script>')</script>
+<script>window.echarts||document.write('<script src="node_modules/echarts/dist/echarts.min.js"><\/script>')</script>
+<script src="src/parsers.js"></script>
+<script src="data/dashboard-data.js"></script>
+<script src="src/core.js"></script>
+<script src="src/scores.js"></script>
+<script src="src/muscles.js"></script>
+<script src="src/plan.js"></script>
+<script src="src/insights.js"></script>
+<script src="src/journal.js"></script>
+<script src="src/drive.js"></script>
+<script src="src/cal.js"></script>
+<script src="src/pages/_ui.js"></script>
+<script src="src/pages/today.js"></script>
+<script src="src/pages/overview.js"></script>
+<script src="src/pages/recovery.js"></script>
+<script src="src/pages/training.js"></script>
+<script src="src/pages/strength.js"></script>
+<script src="src/pages/body.js"></script>
+<script src="src/pages/physique.js"></script>
+<script src="src/pages/longevity.js"></script>
+<script src="src/pages/journal.js"></script>
+<script src="src/pages/data.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

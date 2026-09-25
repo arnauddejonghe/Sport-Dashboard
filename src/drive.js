@@ -1,0 +1,345 @@
+/* Salle des Machines — synchronisation Google Drive depuis la page (capability `mcp`, connecteur « Google Drive »).
+ *
+ * À l'ouverture (si l'accès a déjà été accordé) ou sur un clic : repère le dossier de suivi, liste les fichiers,
+ * télécharge ceux qui sont nouveaux ou modifiés depuis la dernière synchro, les analyse avec les mêmes parseurs
+ * que le build, fusionne avec l'historique et mémorise le résultat dans ce navigateur.
+ */
+(function () {
+  'use strict';
+  const SD = window.SD;
+  const SERVER = 'Google Drive';
+  const MAX_FILES = 30;
+
+  const MIME = {
+    folder: 'application/vnd.google-apps.folder',
+    sheet: 'application/vnd.google-apps.spreadsheet',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  };
+
+  const D = {
+    mcp: null, state: 'hidden', message: '', detail: '', lastSync: null, running: false,
+
+    render() {
+      const el = document.getElementById('sync');
+      const top = document.getElementById('sync-top');
+      const cls = { ok: 'ok', busy: 'busy', warn: 'warn', err: 'err' }[this.tone] || '';
+      const html = this.state === 'hidden' ? '' : `<div class="t"><span class="dot"></span>Google Drive</div><p>${SD.esc(this.message)}</p>${this.detail ? `<p style="color:var(--muted)">${SD.esc(this.detail)}</p>` : ''}
+        ${this.state === 'consent' || this.state === 'idle' || this.state === 'error' || this.state === 'done' ? `<button type="button" class="btn" data-sync>${this.state === 'consent' ? 'Connecter Google Drive' : 'Synchroniser'}</button>` : ''}`;
+      if (el) { el.className = 'sync ' + cls; el.innerHTML = html; el.hidden = this.state === 'hidden'; }
+      if (top) { top.hidden = this.state === 'hidden'; top.className = 'pill' + (this.tone === 'warn' || this.tone === 'err' ? ' stale' : ''); top.innerHTML = `<span class="dot" style="${this.tone === 'busy' ? 'background:var(--strain)' : ''}"></span>Drive · <b>${SD.esc(this.short || '')}</b>`; }
+      const dp = document.getElementById('sync-page');
+      if (dp) dp.innerHTML = html ? `<div class="sync ${cls}" style="border:0;padding:0;background:none">${html}</div>` : '<p class="note">La synchronisation Google Drive fonctionne quand le dashboard est ouvert dans claude.ai.</p>';
+    },
+    set(state, tone, message, short, detail) {
+      Object.assign(this, { state, tone, message, short, detail: detail || '' });
+      this.render();
+    },
+
+    async init() {
+      const use = window.claude && window.claude.use;
+      if (!use) { this.set('hidden'); return; }
+      const mcp = await window.claude.use('mcp').catch(() => null);
+      if (!mcp) { this.set('hidden'); return; }
+      this.mcp = mcp;
+      const perms = await window.claude.use('permissions').catch(() => null);
+      const st = perms ? await perms.state('mcp:' + SERVER).catch(() => 'unavailable') : 'prompt';
+      const last = SD.M && (SD.M.raw.syncedAt || null);
+      this.lastSync = last;
+      if (st === 'granted') { this.sync(false); return; }
+      if (st === 'denied') { this.set('error', 'warn', 'Accès à Google Drive refusé pour cette page pendant cette visite.', 'refusé'); return; }
+      this.set('consent', 'warn', 'Connecte Google Drive pour que le dashboard récupère tout seul tes nouveaux exports à chaque ouverture.', 'à connecter');
+    },
+
+    async call(tool, input) {
+      const r = await this.mcp.callTool(SERVER, tool, input, { cache: false });
+      return r && r.payload;
+    },
+
+    /**
+     * Copie d'une entrée du journal vers la feuille Google : le connecteur ne modifie pas le contenu d'une feuille,
+     * on dépose donc un petit CSV dans « Journal - entrées » ; le script de la feuille l'intègre (une ligne « app » par jour).
+     */
+    async pushJournal(d, e, painSites) {
+      if (!this.mcp || ['hidden', 'consent'].includes(this.state)) return { ok: false, msg: 'Copie vers la feuille Google : connecte Google Drive (page Données).' };
+      try {
+        if (!this.inboxId) {
+          const folderName = (SD.M.cfg.drive && SD.M.cfg.drive.folder) || 'Suivi sportif';
+          if (!this.rootId) { const f = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`); this.rootId = f[0] && f[0].id; }
+          const subs = this.rootId ? await this.list(`parentId = '${this.rootId}' and mimeType = '${MIME.folder}'`) : [];
+          const ib = subs.find((f) => /^journal\s*-\s*entr[ée]es$/i.test(f.title));
+          if (!ib) return { ok: false, msg: 'Dossier « Journal - entrées » introuvable : exécute une fois setup() du script de la feuille (voir page Données).' };
+          this.inboxId = ib.id;
+        }
+        const q = (v) => { const t = v == null ? '' : String(v); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+        const sites = painSites || [];
+        const head = ['Date', 'Heure', 'Source', 'Note', 'Tags', 'Humeur', 'Énergie', 'Stress', 'Courbatures', ...sites.map((p) => 'Douleur ' + p.toLowerCase()), 'Modifié'];
+        const now = new Date();
+        const hhmm = now.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
+        const row = [d, hhmm, 'app', e.text || '', (e.tagNames || []).join(', '), e.mood, e.energy, e.stress, e.soreness, ...sites.map((p) => (e.pain || {})[p]), e.updatedAt || now.toISOString()];
+        const csv = head.map(q).join(',') + '\n' + row.map(q).join(',') + '\n';
+        const stamp = now.toISOString().replace(/[-:]/g, '').slice(0, 15);
+        await this.call('create_file', { title: `journal_app_${d}_${stamp}.csv`, parentId: this.inboxId, textContent: csv, contentMimeType: 'text/csv', disableConversionToGoogleType: true });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, msg: `Copie vers la feuille impossible : ${this.explain(err)[0]}` };
+      }
+    },
+
+    explain(e) {
+      const code = e && e.code;
+      const msgs = {
+        needs_reauth: ['Reconnecte Google Drive dans claude.ai → Paramètres → Connecteurs.', 'à reconnecter'],
+        server_not_connected: ['Ajoute le connecteur Google Drive dans claude.ai → Paramètres → Connecteurs.', 'non connecté'],
+        selection_required: ['Plusieurs connecteurs Google Drive : choisis celui à utiliser dans la fenêtre de claude.ai.', 'à choisir'],
+        not_in_manifest: ['Accès à Google Drive non autorisé pour cette page.', 'non autorisé'],
+        blocked_by_policy: ['La politique de ton organisation bloque cet accès Google Drive.', 'bloqué'],
+        approval_required: ['Ton organisation exige une approbation pour cet accès Drive.', 'approbation requise'],
+        server_unavailable: ['Google Drive ne répond pas pour le moment. Réessaie dans quelques minutes.', 'indisponible'],
+        not_granted: ['La synchronisation n’est pas disponible dans cette vue.', 'indisponible'],
+        capability_disabled: ['La synchronisation n’est pas disponible dans cette vue.', 'indisponible'],
+        tool_error: [`Google Drive a renvoyé une erreur : ${(e && e.message) || ''}`, 'erreur'],
+      };
+      return msgs[code] || [`Synchronisation interrompue${code ? ` (${code})` : ''}.`, 'erreur'];
+    },
+
+    async list(query) {
+      const out = [];
+      let token = null;
+      for (let page = 0; page < 5; page++) {
+        const input = { query, pageSize: 100, excludeContentSnippets: true };
+        if (token) input.pageToken = token;
+        const p = await this.call('search_files', input);
+        const got = (p && p.files) || [];
+        for (const f of got) out.push(f);
+        token = p && (p.nextPageToken || p.next_page_token);
+        if (!token || !got.length) break; // une page vide signifie la fin, même avec un jeton
+      }
+      return out;
+    },
+
+    classify(f) {
+      const t = f.title || '';
+      if (f.mimeType === MIME.folder) return null;
+      if (/^(HealthExport|Export_Apple_Sante)/i.test(t) && /csv/i.test(f.mimeType + t)) return 'health';
+      if (/macrofactor/i.test(t) && (f.mimeType === MIME.xlsx || /\.(xlsx|csv)$/i.test(t) || /csv/i.test(f.mimeType || ''))) return 'macrofactor';
+      if (/trainai/i.test(t) && (f.mimeType === MIME.xlsx || /\.xlsx$/i.test(t))) return 'trainai';
+      if (/(retours|journal)/i.test(t) && (f.mimeType === MIME.sheet || /csv/i.test(f.mimeType + t))) return 'notes';
+      if (/_coach/i.test(t) && /(markdown|text)/i.test(f.mimeType || '') || /_coach.*\.md$/i.test(t)) return 'coach';
+      if (/(bilan|biomarq|analyse|labo|sang)/i.test(t) && (/csv/i.test(f.mimeType + t) || f.mimeType === MIME.sheet)) return 'labs';
+      return null;
+    },
+
+    async sync(interactive) {
+      if (this.running || !this.mcp) return;
+      this.running = true;
+      const P = window.SDParsers;
+      try {
+        this.set('busy', 'busy', 'Recherche du dossier de suivi…', 'recherche…');
+        const folderName = (SD.M.cfg.drive && SD.M.cfg.drive.folder) || 'Suivi sportif';
+        const folders = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`);
+        if (!folders.length) { this.set('error', 'warn', `Dossier « ${folderName} » introuvable dans ton Drive.`, 'dossier introuvable', 'Le nom du dossier se règle dans data/config.json (drive.folder).'); return; }
+        const root = folders[0];
+        this.rootId = root.id;
+        let files = await this.list(`parentId = '${root.id}'`);
+        const inbox = files.find((f) => f.mimeType === MIME.folder && /^journal\s*-\s*entr[ée]es$/i.test(f.title));
+        if (inbox) this.inboxId = inbox.id;
+        for (const sub of files.filter((f) => f.mimeType === MIME.folder && !/photo/i.test(f.title) && f !== inbox)) {
+          files = files.concat(await this.list(`parentId = '${sub.id}'`));
+        }
+        // sélection : fichiers reconnus, nouveaux ou modifiés depuis la dernière synchro / le build
+        const raw = SD.M.raw;
+        const since = raw.syncedAt || raw.generatedAt || '1970';
+        const norm = (n) => String(n || '').replace(/\.(csv|xlsx|md)$/i, '').trim().toLowerCase();
+        const known = new Map(raw.sources.map((s) => [norm(s.fileName), s]));
+        const candidates = [];
+        const coachBest = new Map();
+        const ignored = [];
+        for (const f of files) {
+          const kind = this.classify(f);
+          if (!kind) {
+            // fichier de données non reconnu : on le signale au lieu de l'ignorer en silence
+            if (f.mimeType !== MIME.folder && (/\.(csv|xlsx|xls|json|md|txt)$/i.test(f.title || '') || f.mimeType === MIME.sheet)) ignored.push(f.title);
+            continue;
+          }
+          const k = known.get(norm(f.title));
+          const changed = !k || (f.modifiedTime && f.modifiedTime > since && (!k.modifiedTime || f.modifiedTime > k.modifiedTime));
+          if (!changed) continue;
+          if (kind === 'coach') {
+            const info = P.coachFileInfo(f.title);
+            if (!info) continue;
+            const cur = coachBest.get(info.d);
+            if (!cur || info.rank > cur.info.rank || (info.rank === cur.info.rank && f.modifiedTime > cur.f.modifiedTime)) coachBest.set(info.d, { f, info });
+            continue;
+          }
+          candidates.push({ f, kind });
+        }
+        for (const { f, info } of coachBest.values()) {
+          const have = SD.M.coach.get(info.d);
+          if (!have || (have.rank || 0) < info.rank || f.modifiedTime > since) candidates.push({ f, kind: 'coach' });
+        }
+        candidates.sort((a, b) => String(a.f.modifiedTime).localeCompare(String(b.f.modifiedTime)));
+        const todo = candidates.slice(-MAX_FILES);
+        const ign = ignored.length ? ` · Non reconnu${ignored.length > 1 ? 's' : ''} : ${ignored.slice(0, 3).join(', ')}${ignored.length > 3 ? '…' : ''}` : '';
+        if (!todo.length) {
+          const now = new Date().toISOString();
+          this.lastSync = now;
+          await SD.persist(Object.assign({}, raw, { syncedAt: now }), true);
+          this.set('done', ignored.length ? 'warn' : 'ok', `À jour : aucun nouveau fichier reconnu dans « ${folderName} ».`, ignored.length ? `${ignored.length} ignoré${ignored.length > 1 ? 's' : ''}` : 'à jour', `Vérifié ${new Date().toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${ign}`);
+          return;
+        }
+        // téléchargement + analyse
+        const parts = [];
+        const errors = [];
+        let XLSX = null;
+        for (let i = 0; i < todo.length; i++) {
+          const { f, kind } = todo[i];
+          this.set('busy', 'busy', `Import ${i + 1}/${todo.length} : ${f.title}`, `${i + 1}/${todo.length}`);
+          try {
+            const input = { fileId: f.id };
+            if (f.mimeType === MIME.sheet) input.exportMimeType = 'text/csv';
+            const p = await this.call('download_file_content', input);
+            const b64 = p && (p.content || p.data);
+            if (!b64) throw new Error('contenu vide');
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            let name = f.title;
+            if (f.mimeType === MIME.sheet && !/\.csv$/i.test(name)) name += '.csv';
+            if (kind === 'coach' && !/\.md$/i.test(name)) name += '.md';
+            let part;
+            if ((kind === 'macrofactor' || kind === 'trainai') && !/\.csv$/i.test(name) && !/csv/i.test(f.mimeType || '')) {
+              XLSX = XLSX || (await SD.loadXLSX());
+              part = P.parseFile({ name, buffer: bytes }, XLSX);
+            } else {
+              part = P.parseFile({ name, text: new TextDecoder('utf-8').decode(bytes) });
+            }
+            part.driveId = f.id;
+            part.modifiedTime = f.modifiedTime;
+            if (!part.exportedAt) part.exportedAt = (f.modifiedTime || '').slice(0, 19);
+            if (part.fileName !== f.title) part.fileName = f.title;
+            parts.push(part);
+          } catch (e) {
+            errors.push(`${f.title} : ${e && e.code ? this.explain(e)[0] : (e && e.message) || e}`);
+            if (e && ['needs_reauth', 'server_not_connected', 'not_in_manifest', 'blocked_by_policy', 'selection_required', 'approval_required'].includes(e.code)) throw e;
+          }
+        }
+        if (!parts.length) { this.set('error', 'err', 'Aucun fichier n’a pu être importé.', 'échec', errors.slice(0, 3).join(' · ')); return; }
+        const add = P.mergeParsed(parts, {});
+        const merged = P.overlayDataset(raw, add);
+        merged.config = raw.config;
+        merged.syncedAt = new Date().toISOString();
+        this.lastSync = merged.syncedAt;
+        await SD.persist(merged);
+        this.set('done', errors.length || ignored.length ? 'warn' : 'ok', `${parts.length} fichier${parts.length > 1 ? 's' : ''} importé${parts.length > 1 ? 's' : ''} depuis « ${folderName} » : ${parts.map((p) => p.fileName).slice(0, 3).join(', ')}${parts.length > 3 ? '…' : ''}.`, errors.length ? `${parts.length} importés, ${errors.length} erreurs` : `${parts.length} nouveaux`, (errors.length ? errors.slice(0, 3).join(' · ') : `Données jusqu’au ${SD.fdM(merged.coverage.to)}`) + ign);
+      } catch (e) {
+        const [msg, short] = this.explain(e);
+        this.set('error', 'err', msg, short);
+      } finally {
+        this.running = false;
+      }
+    },
+  };
+
+  // ---------------------------------------------------------------- photos (lecture à la demande, jamais stockées)
+  const POSE = (t) => (/(face|front|avant)/i.test(t) ? 'Face' : /(profil|side|c[oô]t[ée])/i.test(t) ? 'Profil' : /(dos|back|arri[eè]re)/i.test(t) ? 'Dos' : 'Autre');
+  function photoDate(title, created) {
+    let m = String(title).match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+    if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = String(title).match(/(\d{2})[-_.](\d{2})[-_.](20\d{2})/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+    return String(created || '').slice(0, 10) || null;
+  }
+  D.photoMeta = (title, created) => ({ d: photoDate(title, created), pose: POSE(title), dated: /(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})|(\d{2})[-_.](\d{2})[-_.](20\d{2})/.test(String(title)) });
+  // Date de prise de vue lue dans les métadonnées EXIF (photos nommées « IMG_1234.HEIC ») : seule la date est gardée, dans ce navigateur
+  const EXIF_KEY = 'sdm-photo-dates-v1';
+  const exifCache = (() => { try { return JSON.parse(localStorage.getItem(EXIF_KEY) || '{}'); } catch (e) { return {}; } })();
+  const saveExif = () => { try { localStorage.setItem(EXIF_KEY, JSON.stringify(exifCache)); } catch (e) { /* ignoré */ } };
+  function exifDate(bytes) {
+    const n = Math.min(bytes.length, 600000);
+    let s = '';
+    for (let i = 0; i < n; i += 8192) s += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(n, i + 8192)));
+    const all = s.match(/(?:19|20)\d\d:[01]\d:[0-3]\d [0-2]\d:[0-5]\d:[0-5]\d/g) || [];
+    if (!all.length) return null;
+    const m = all.sort()[0]; // la plus ancienne des dates EXIF = prise de vue (DateTimeOriginal ≤ DateTime)
+    return `${m.slice(0, 4)}-${m.slice(5, 7)}-${m.slice(8, 10)}`;
+  }
+  D.photos = null;
+  D.photoState = 'idle';
+  D.listPhotos = async function () {
+    if (!this.mcp) { this.photoState = 'unavailable'; return []; }
+    if (this.photos) return this.photos;
+    this.photoState = 'loading';
+    try {
+      const folderName = (SD.M.cfg.drive && SD.M.cfg.drive.folder) || 'Suivi sportif';
+      const roots = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`);
+      if (!roots.length) { this.photoState = 'nofolder'; return []; }
+      const subs = (await this.list(`parentId = '${roots[0].id}' and mimeType = '${MIME.folder}'`)).filter((f) => /photo/i.test(f.title));
+      let files = [];
+      for (const sub of subs) {
+        const inside = await this.list(`parentId = '${sub.id}'`);
+        files = files.concat(inside.filter((f) => /^image\//.test(f.mimeType || '')));
+        for (const sub2 of inside.filter((f) => f.mimeType === MIME.folder)) files = files.concat((await this.list(`parentId = '${sub2.id}'`)).filter((f) => /^image\//.test(f.mimeType || '')));
+      }
+      this.photos = files.map((f) => {
+        const p = Object.assign({ id: f.id, title: f.title, mimeType: f.mimeType }, D.photoMeta(f.title, f.createdTime || f.modifiedTime));
+        if (!p.dated && exifCache[f.id]) { p.d = exifCache[f.id]; p.dated = 'exif'; }
+        return p;
+      }).filter((p) => p.d).sort((a, b) => a.d.localeCompare(b.d));
+      this.photoState = subs.length ? 'ok' : 'nosub';
+      this.datePhotos();
+      return this.photos;
+    } catch (e) { this.photoState = 'error'; this.photoError = this.explain(e)[0]; return []; }
+  };
+  const blobCache = new Map();
+  const rawCache = new Map();
+  async function fetchBytes(p) {
+    if (rawCache.has(p.id)) return rawCache.get(p.id);
+    const r = await D.call('download_file_content', { fileId: p.id });
+    const b64 = r && (r.content || r.data);
+    if (!b64) throw new Error('photo vide');
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    rawCache.set(p.id, bytes);
+    return bytes;
+  }
+  /** En arrière-plan : date EXIF des photos sans date dans le nom (une fois par photo, résultat gardé dans le navigateur) */
+  D.datePhotos = async function () {
+    if (this.dating) return;
+    const todo = (this.photos || []).filter((p) => !p.dated);
+    if (!todo.length) return;
+    this.dating = true;
+    try {
+      for (const p of todo) {
+        try {
+          const d = exifDate(await fetchBytes(p));
+          if (d) { p.d = d; p.dated = 'exif'; exifCache[p.id] = d; saveExif(); }
+          else p.dated = 'created';
+        } catch (e) { p.dated = 'created'; }
+        this.photoProgress = todo.filter((q) => q.dated).length + ' / ' + todo.length;
+        if (SD.onPhotos) SD.onPhotos();
+      }
+      this.photos.sort((a, b) => a.d.localeCompare(b.d));
+    } finally { this.dating = false; this.photoProgress = null; if (SD.onPhotos) SD.onPhotos(); }
+  };
+  /** URL affichable d'une photo du Drive (HEIC converti en JPEG si besoin), gardée en mémoire le temps de la visite */
+  D.photoURL = async function (p) {
+    if (blobCache.has(p.id)) return blobCache.get(p.id);
+    const bytes = await fetchBytes(p);
+    let blob = new Blob([bytes], { type: p.mimeType || 'image/jpeg' });
+    if (/hei[cf]/i.test(p.mimeType + p.title)) blob = await heicToJpeg(blob);
+    const url = URL.createObjectURL(blob);
+    blobCache.set(p.id, url);
+    return url;
+  };
+  async function heicToJpeg(blob) {
+    if (!window.heic2any) {
+      await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+    }
+    const out = await window.heic2any({ blob, toType: 'image/jpeg', quality: 0.85 });
+    return Array.isArray(out) ? out[0] : out;
+  }
+  D.heicToJpeg = heicToJpeg;
+
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-sync]')) D.sync(true);
+  });
+
+  SD.drive = D;
+})();

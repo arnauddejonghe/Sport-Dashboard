@@ -1,0 +1,39 @@
+{
+  "_comment": "Copie ce fichier en data/config.json (ignoré par git) et adapte-le. Relance ensuite npm run build.",
+  "athlete": "Prénom",
+  "targets": {
+    "stepsGoal": 10000,
+    "stepsFloor": 8000,
+    "sleepHours": 7.5,
+    "sessionsPerWeek": 5,
+    "proteinPerKg": [2.0, 2.2],
+    "setsPerMuscleWeek": [10, 20],
+    "partialLogKcal": 1200,
+    "walkAsymBase": 2,
+    "walkAsymAlert": 9,
+    "weeklyRate": {
+      "Prise de masse": [0.10, 0.20],
+      "Sèche": [-0.9, -0.4],
+      "Maintien": [-0.1, 0.1]
+    }
+  },
+  "keyExercises": [
+    "Dumbbell Bench Press",
+    "45° Incline Dumbbell Press",
+    "Seated Dumbbell Overhead Press",
+    "Wide Grip Cable Lat Pulldown",
+    "Neutral Grip Pin-Loaded Machine Row",
+    "Pin-Loaded Leg Press",
+    "Leg Extension",
+    "Lying Hamstring Curl"
+  ],
+  "deadline": { "date": "2026-12-31", "label": "objectif" },
+  "plan": { "dayStart": "06:30", "dayEnd": "21:30", "travelMin": 20, "preferredStart": null, "wake": "06:30" },
+  "drive": { "folder": "Suivi sportif" },
+  "painSites": ["Genou", "Lombaires"],
+  "journalTags": ["Créatine prise", "Entraînement à jeun"],
+  "privacy": { "hideTerms": [] },
+  "phases": [
+    { "name": "Exemple de phase perso", "start": "2026-01-01", "end": "2026-01-31" }
+  ]
+}
