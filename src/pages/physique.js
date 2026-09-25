@@ -4,13 +4,13 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fdM, fdS, esc, tms, addD, pluck, mean, median, chart, base, tipBox, axisTip, xCat, yVal, line, kpi, spark, ts } = SD;
-  const { card, seg, setHTML, setText } = SD.ui;
+  const { card, hic, seg, setHTML, setText } = SD.ui;
 
   // ================================================================ composition : poids, masse grasse, masse maigre (un seul graphique)
   const COMP = [
     { k: 'w', l: 'Poids', raw: 'weight', tr: 'trendW', u: 'kg', ax: 0, col: (T) => T.s[0] },
-    { k: 'bf', l: 'Masse grasse', raw: 'bodyFat', tr: 'bfT', u: '%', ax: 1, col: (T) => T.body },
-    { k: 'lean', l: 'Masse maigre', raw: 'lean', tr: 'leanT', u: 'kg', ax: 0, col: (T) => T.act },
+    { k: 'bf', l: 'Masse grasse', raw: 'bodyFat', tr: 'bfT', u: '%', ax: 1, col: (T) => T.s[1] },
+    { k: 'lean', l: 'Masse maigre', raw: 'lean', tr: 'leanT', u: 'kg', ax: 0, col: (T) => T.s[2] },
   ];
   function compChart(id) {
     const { F, S, T, M } = SD;
@@ -155,14 +155,14 @@
     html() {
       const S = SD.S;
       return `<div class="kpis" id="ph-k"></div>
-        ${card('c12', 'ph-comp', 'Poids, masse grasse & masse maigre', '', `<div class="seg" id="ph-comp-seg" role="group">${COMP.map((c) => `<button type="button" data-comp="${c.k}" aria-pressed="${(S.compShow || []).includes(c.k)}">${c.l}</button>`).join('')}</div>`, { h: 'xtall' })}
-        <section class="card c12" id="ph-photos"><div class="card-h"><div><h2>Photos avant / après</h2><p class="sub" id="ph-photos-s"></p></div>
+        ${card('c12', 'ph-comp', 'Poids, masse grasse & masse maigre', '', `<div class="seg" id="ph-comp-seg" role="group">${COMP.map((c) => `<button type="button" data-comp="${c.k}" aria-pressed="${(S.compShow || []).includes(c.k)}">${c.l}</button>`).join('')}</div>`, { icon: 'scale', tone: 'body', h: 'xtall' })}
+        <section class="card c12" id="ph-photos"><div class="card-h"><div><h2>${hic('physique', 'body')}Photos avant / après</h2><p class="sub" id="ph-photos-s"></p></div>
           <div class="card-tools">${seg('photoPose', [['all', 'Toutes'], ['Face', 'Face'], ['Profil', 'Profil'], ['Dos', 'Dos']], S.photoPose)}${seg('photoMode', [['side', 'Côte à côte'], ['slider', 'Curseur']], S.photoMode)}
             <label class="btn" for="ph-file">Depuis l’appareil</label><input type="file" id="ph-file" accept="image/*" multiple hidden></div></div>
           <div id="ph-photos-b"></div></section>
-        <section class="card c12"><div class="card-h"><div><h2>Mensurations</h2><p class="sub" id="ph-meas-s"></p></div></div><div id="ph-ratios" class="ratios"></div><div id="ph-meas-b" class="mgrid"></div></section>
-        ${card('c12', 'ph-mchart', 'Évolution d’une mesure', 'Tout l’historique MacroFactor · clic sur une tuile ci-dessus pour changer de mesure', '<select class="fselect" id="ph-meas-sel" data-state="measure" aria-label="Mesure"></select>', { h: 'short' })}
-        <section class="card c12"><div class="card-h"><div><h2>Ce qui fait bouger ton physique</h2><p class="sub" id="ph-lev-s"></p></div><div class="card-tools">${seg('lever', [['trend', 'Poids'], ['fat', 'Masse grasse'], ['strength', 'Force']], S.lever)}</div></div>
+        <section class="card c12"><div class="card-h"><div><h2>${hic('ruler', 'body')}Mensurations</h2><p class="sub" id="ph-meas-s"></p></div></div><div id="ph-ratios" class="ratios"></div><div id="ph-meas-b" class="mgrid"></div></section>
+        ${card('c12', 'ph-mchart', 'Évolution d’une mesure', 'Tout l’historique MacroFactor · clic sur une tuile ci-dessus pour changer de mesure', '<select class="fselect" id="ph-meas-sel" data-state="measure" aria-label="Mesure"></select>', { icon: 'ruler', tone: 'body', h: 'short' })}
+        <section class="card c12"><div class="card-h"><div><h2>${hic('trend', 'body')}Ce qui fait bouger ton physique</h2><p class="sub" id="ph-lev-s"></p></div><div class="card-tools">${seg('lever', [['trend', 'Poids'], ['fat', 'Masse grasse'], ['strength', 'Force']], S.lever)}</div></div>
           <div class="lev"><div class="chart tall" id="ph-lev"></div><div id="ph-lev-b" class="lev-list"></div></div></section>`;
     },
     update() {
@@ -180,12 +180,12 @@
       const hCm = M.raw.profile && M.raw.profile.heightCm;
       const adonis = waistL && shL && shL.d === waistL.d ? shL['Épaules'] / waistL['Tour de taille'] : null;
       setHTML('ph-k', [
-        kpi({ label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: null, ctx: b ? `Source : ${b.trendSrc === 'MacroFactor' ? 'Trend Weight MacroFactor' : 'moyenne des pesées'}` : '', color: T.body }),
-        kpi({ label: 'Rythme', value: rate, digits: 2, unit: 'kg/sem', fmt: (v) => sgn(v, 2), ctx: phase ? `Phase ${esc(phase)}${rt ? ` · cible ${sgn(rt[0], 2)} à ${sgn(rt[1], 2)}` : ''}` : '', status: rt && isNum(rate) ? ' ' + (rate < rt[0] ? '<span class="status warn">Sous la cible</span>' : rate > rt[1] ? '<span class="status warn">Au-dessus</span>' : '<span class="status good">Dans la cible</span>') : '', color: T.body }),
-        kpi({ label: 'Masse grasse', value: bf.length ? bf[bf.length - 1].bodyFat : null, unit: '%', digits: 1, delta: bf.length >= 2 ? bf[bf.length - 1].bodyFat - bf[0].bodyFat : null, deltaFmt: (v) => `${sgn(v, 1)} pt sur la période`, deltaLabel: '', good: 'down', color: T.body }),
-        kpi({ label: 'Masse maigre', value: (F.days.filter((x) => isNum(x.leanT)).slice(-1)[0] || {}).leanT, unit: 'kg', digits: 1, delta: (() => { const l = F.days.filter((x) => isNum(x.leanT)); return l.length >= 2 ? l[l.length - 1].leanT - l[0].leanT : null; })(), deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: 'up', ctx: 'Tendance lissée de la balance', color: T.act }),
-        kpi({ label: 'Tour de taille', value: waistL ? waistL['Tour de taille'] : null, unit: 'cm', digits: 1, delta: waistL && waistF && waistF !== waistL ? waistL['Tour de taille'] - waistF['Tour de taille'] : null, deltaFmt: (v) => `${sgn(v, 1)} cm sur la période`, deltaLabel: '', good: 'down', ctx: waistL ? `Mesuré le ${esc(fdM(waistL.d))}${hCm ? ` · taille/hauteur ${nf(waistL['Tour de taille'] / hCm, 2)}` : ''}` : '', color: T.body }),
-        kpi({ label: 'Épaules / taille', value: adonis, digits: 2, ctx: adonis ? `Idéal esthétique ≈ 1,6 (« indice d’Adonis ») · ${esc(fdM(waistL.d))}` : 'Mesure les épaules et la taille le même jour', meter: adonis ? Math.min(100, (adonis / 1.618) * 100) : null, color: T.body }),
+        kpi({ icon: 'scale', label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: null, ctx: b ? `Source : ${b.trendSrc === 'MacroFactor' ? 'Trend Weight MacroFactor' : 'moyenne des pesées'}` : '', color: T.body }),
+        kpi({ icon: 'trend', label: 'Rythme', value: rate, digits: 2, unit: 'kg/sem', fmt: (v) => sgn(v, 2), ctx: phase ? `Phase ${esc(phase)}${rt ? ` · cible ${sgn(rt[0], 2)} à ${sgn(rt[1], 2)}` : ''}` : '', status: rt && isNum(rate) ? ' ' + (rate < rt[0] ? '<span class="status warn">Sous la cible</span>' : rate > rt[1] ? '<span class="status warn">Au-dessus</span>' : '<span class="status good">Dans la cible</span>') : '', color: T.body }),
+        kpi({ icon: 'percent', label: 'Masse grasse', value: bf.length ? bf[bf.length - 1].bodyFat : null, unit: '%', digits: 1, delta: bf.length >= 2 ? bf[bf.length - 1].bodyFat - bf[0].bodyFat : null, deltaFmt: (v) => `${sgn(v, 1)} pt sur la période`, deltaLabel: '', good: 'down', color: T.body }),
+        kpi({ icon: 'muscle', label: 'Masse maigre', value: (F.days.filter((x) => isNum(x.leanT)).slice(-1)[0] || {}).leanT, unit: 'kg', digits: 1, delta: (() => { const l = F.days.filter((x) => isNum(x.leanT)); return l.length >= 2 ? l[l.length - 1].leanT - l[0].leanT : null; })(), deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: 'up', ctx: 'Tendance lissée de la balance', color: T.act }),
+        kpi({ icon: 'ruler', label: 'Tour de taille', value: waistL ? waistL['Tour de taille'] : null, unit: 'cm', digits: 1, delta: waistL && waistF && waistF !== waistL ? waistL['Tour de taille'] - waistF['Tour de taille'] : null, deltaFmt: (v) => `${sgn(v, 1)} cm sur la période`, deltaLabel: '', good: 'down', ctx: waistL ? `Mesuré le ${esc(fdM(waistL.d))}${hCm ? ` · taille/hauteur ${nf(waistL['Tour de taille'] / hCm, 2)}` : ''}` : '', color: T.body }),
+        kpi({ icon: 'vshape', label: 'Épaules / taille', value: adonis, digits: 2, ctx: adonis ? `Idéal esthétique ≈ 1,6 (« indice d’Adonis ») · ${esc(fdM(waistL.d))}` : 'Mesure les épaules et la taille le même jour', meter: adonis ? Math.min(100, (adonis / 1.618) * 100) : null, color: T.body }),
       ].join(''));
 
       // ---- composition : un graphique, trois courbes au choix, projections sur la pente des 28 derniers jours

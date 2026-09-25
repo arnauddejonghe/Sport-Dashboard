@@ -4,7 +4,7 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fH, fHM, fdL, fdS, fdM, esc, addD, typeColor, STRENGTH, chart, base, tipBox, xCat, yVal, bar, line, ring, rangeBar } = SD;
-  const { card, setHTML, setText } = SD.ui;
+  const { card, hic, setHTML, setText } = SD.ui;
 
   const BM_TODAY = [
     ['hrv', 'HRV (indicative)', 'ms', 0, 1],
@@ -43,7 +43,8 @@
   }
 
   const P = () => SD.plan;
-  const ZC = (T) => ({ light: 'rgba(46,155,255,0.35)', mod: 'rgba(46,155,255,0.58)', sus: 'rgba(46,155,255,0.8)', high: T.strain });
+  // zones d'effort : rampe ordinale d'une seule teinte (légère → élevée), tokens du thème
+  const ZC = (T) => ({ light: T.zone[0], mod: T.zone[1], sus: T.zone[2], high: T.zone[3] });
   const zoneLabel = (z) => (z ? SD.scores.EFF_LABEL[z] : '—');
   const dayName = (d) => SD.fdate(d, { weekday: 'long', day: 'numeric', month: 'long' });
   const DAY_FR = { upper: 'Haut du corps', lower: 'Bas du corps', pull: 'Tirage', push: 'Poussée', legs: 'Jambes', rest: 'Repos' };
@@ -71,10 +72,10 @@
     noFilters: true,
     html() {
       return `<section class="card c12 plan" id="pl"><div id="pl-b"></div></section>
-        ${card('c8', 'pl-ses', 'Séance du jour', 'Programme MacroFactor · charge visée = ta force estimée récente ramenée à la fourchette et au RIR prévus, calée sur une charge que tu as déjà utilisée', '', { table: false, body: '<div id="pl-ses-b"></div>' })}
-        ${card('c4', 'pl-mus', 'Muscles', 'Séries des 7 derniers jours, + prévu aujourd’hui (cible 10–20 / sem)', '', { table: false, body: '<div id="pl-mus-b"></div>' })}
-        ${card('c12', 'pl-wk', 'Semaine à venir', 'Programme projeté jour par jour et agenda', '', { table: false, body: '<div id="pl-wk-b"></div>' })}
-        ${card('c12', 'pl-eff', 'Effort musculation · prévu et réalisé', 'Séries efficaces : chaque série de travail compte selon sa proximité de l’échec (RIR 0 = 1 ; RIR 2 = 0,85 ; RIR 4 = 0,5). Zones = quartiles de tes séances des 6 derniers mois', '', { h: 'short' })}
+        ${card('c8', 'pl-ses', 'Séance du jour', 'Programme MacroFactor · charge visée = ta force estimée récente ramenée à la fourchette et au RIR prévus, calée sur une charge que tu as déjà utilisée', '', { table: false, body: '<div id="pl-ses-b"></div>', icon: 'dumbbell', tone: 'strain' })}
+        ${card('c4', 'pl-mus', 'Muscles', 'Séries des 7 derniers jours, + prévu aujourd’hui (cible 10–20 / sem)', '', { table: false, body: '<div id="pl-mus-b"></div>', icon: 'muscle', tone: 'strain' })}
+        ${card('c12', 'pl-wk', 'Semaine à venir', 'Programme projeté jour par jour et agenda', '', { table: false, body: '<div id="pl-wk-b"></div>', icon: 'calendar', tone: 'accent' })}
+        ${card('c12', 'pl-eff', 'Effort musculation · prévu et réalisé', 'Séries efficaces : chaque série de travail compte selon sa proximité de l’échec (RIR 0 = 1 ; RIR 2 = 0,85 ; RIR 4 = 0,5). Zones = quartiles de tes séances des 6 derniers mois', '', { h: 'short', icon: 'zap', tone: 'strain' })}
         <div class="c12 divider"><h2>Bilan du jour</h2><span>la dernière journée complète, ou le jour choisi</span></div>
         <section class="card c12 dayhero">
           <div class="daynav"><button type="button" class="btn icon-btn" data-dayshift="-1" aria-label="Jour précédent">‹</button><h2 id="td-date"></h2><button type="button" class="btn icon-btn" data-dayshift="1" aria-label="Jour suivant">›</button>
@@ -85,12 +86,12 @@
           </div>
           <div id="td-alert"></div></section>
         <div class="rings three c12" id="td-rings"></div>
-        ${card('c7', 'td-bm', 'Biomarqueurs', 'Valeur du jour et ta plage normale (médiane ± écart robuste des 30 jours précédents)', '', { table: false, body: '<div id="td-bm-b"></div>' })}
-        ${card('c5', 'td-str', 'Séance & activité', null, '', { table: false, body: '<div id="td-str-b"></div>' })}
-        ${card('c7', 'td-sleep', 'Sommeil', '', '', { h: 'short' })}
-        ${card('c5', 'td-nut', 'Nutrition & hydratation', null, '', { table: false, body: '<div id="td-nut-b"></div>' })}
-        ${card('c7', 'td-jr', 'Journal', 'Une note libre suffit ; les #tags servent à mesurer l’effet de tes habitudes.', '', { table: false, body: '<div id="td-jr-b"></div>' })}
-        ${card('c5', 'td-14', '14 jours', 'Récupération (couleur de zone) et effort musculation (séries efficaces, zone)', '', { h: 'short' })}`;
+        ${card('c7', 'td-bm', 'Biomarqueurs', 'Valeur du jour et ta plage normale (médiane ± écart robuste des 30 jours précédents)', '', { table: false, body: '<div id="td-bm-b"></div>', icon: 'heart', tone: 'rec' })}
+        ${card('c5', 'td-str', 'Séance & activité', null, '', { table: false, body: '<div id="td-str-b"></div>', icon: 'flame', tone: 'act' })}
+        ${card('c7', 'td-sleep', 'Sommeil', '', '', { h: 'short', icon: 'moon', tone: 'sleep' })}
+        ${card('c5', 'td-nut', 'Nutrition & hydratation', null, '', { table: false, body: '<div id="td-nut-b"></div>', icon: 'food', tone: 'nutri' })}
+        ${card('c7', 'td-jr', 'Journal', 'Une note libre suffit ; les #tags servent à mesurer l’effet de tes habitudes.', '', { table: false, body: '<div id="td-jr-b"></div>', icon: 'journal', tone: 'age' })}
+        ${card('c5', 'td-14', '14 jours', 'Récupération (couleur de zone) et effort musculation (séries efficaces, zone)', '', { h: 'short', icon: 'trend', tone: 'accent' })}`;
     },
 
     // ================================================================ plan du jour
@@ -123,25 +124,26 @@
         subl = `${esc(DAY_FR[slot.day.toLowerCase()] || '')} · programme ${esc(st.prog.name)} · semaine ${slot.cycle}/${st.prog.cycles.length} · séance ${st.sessionNo}/${st.trainSlots}${sp ? ` · ${sp.sets} séries · ≈ ${fHM(sp.dur)}` : ''}`;
       }
       const srcTxt = rd.src === 'night' ? 'nuit de cette nuit' : rd.srcDate ? `dernière nuit importée (${fdM(rd.srcDate)}) : exporte Apple Santé ce matin pour une décision à jour` : 'pas de mesure de récupération';
+      const goIc = (lv) => `<span class="go-ic">${SD.icon(lv === 'go' ? 'check' : lv === 'rest' ? 'moon' : lv === 'easy' ? 'stop' : 'alert')}</span>`;
       const goBox = slot && !slot.rest && !done
-        ? `<div class="pl-go ${rd.level}"><b>${esc(rd.title)}</b><span>${esc(rd.advice)}</span><small>${esc(rd.reasons.join(' · ') || 'pas de signal particulier')} · ${esc(srcTxt)}</small></div>`
-        : slot && slot.rest ? `<div class="pl-go rest"><b>Récupération active</b><span>Marche 30 à 45 min pour tenir tes pas, mobilité 10 min ; pas de séance lourde.</span><small>${isNum(rd.rec) ? `récupération ${rd.rec} % · ` : ''}${esc(srcTxt)}</small></div>`
-          : done ? `<div class="pl-go go"><b>Séance enregistrée</b><span>${xt && xt.eff ? `${nf(xt.eff.stim, 1)} séries efficaces pour ${nf(sp && sp.stim, 1)} prévues (${Math.round((xt.eff.stim / (sp ? sp.stim : xt.eff.stim)) * 100)} %).` : 'Bravo.'}</span><small>Récupère : protéines, hydratation, coucher à l’heure.</small></div>` : '';
+        ? `<div class="pl-go ${rd.level}">${goIc(rd.level)}<b>${esc(rd.title)}</b><span>${esc(rd.advice)}</span><small>${esc(rd.reasons.join(' · ') || 'pas de signal particulier')} · ${esc(srcTxt)}</small></div>`
+        : slot && slot.rest ? `<div class="pl-go rest">${goIc('rest')}<b>Récupération active</b><span>Marche 30 à 45 min pour tenir tes pas, mobilité 10 min ; pas de séance lourde.</span><small>${isNum(rd.rec) ? `récupération ${rd.rec} % · ` : ''}${esc(srcTxt)}</small></div>`
+          : done ? `<div class="pl-go go">${goIc('go')}<b>Séance enregistrée</b><span>${xt && xt.eff ? `${nf(xt.eff.stim, 1)} séries efficaces pour ${nf(sp && sp.stim, 1)} prévues (${Math.round((xt.eff.stim / (sp ? sp.stim : xt.eff.stim)) * 100)} %).` : 'Bravo.'}</span><small>Récupère : protéines, hydratation, coucher à l’heure.</small></div>` : '';
 
       // ---- zone d'effort visée
       let effHtml = '';
       if (sp && z) {
         const zp = SD.scores.effZone(sp.stim, z);
         const adj = rd.level === 'easy' ? 0.8 : rd.level === 'caution' ? 0.92 : 1;
-        effHtml = `<div class="pl-eff"><div class="k">Zone d’effort visée</div><div class="v">${zoneLabel(zp)} <small>≈ ${nf(sp.stim * adj, 1)} séries efficaces${adj < 1 ? ` (${nf(sp.stim, 1)} au programme, ajusté à ton état)` : ''}</small></div>
+        effHtml = `<div class="pl-eff"><div class="k">${hic('target', 'strain')}Zone d’effort visée</div><div class="v">${zoneLabel(zp)} <small>≈ ${nf(sp.stim * adj, 1)} séries efficaces${adj < 1 ? ` (${nf(sp.stim, 1)} au programme, ajusté à ton état)` : ''}</small></div>
           ${effScale(T, z, sp.stim * adj, done && xt && xt.eff ? xt.eff.stim : null)}
           <p class="note">${sp.sets} séries au RIR prévu. Une séance « ${zoneLabel(zp).toLowerCase()} » te situe ${zp === 'high' ? 'dans ton quart le plus exigeant' : zp === 'sus' ? 'au-dessus de ta séance médiane' : zp === 'mod' ? 'juste sous ta séance médiane' : 'dans ton quart le plus léger'} (médiane ${nf(z.p50, 1)}).</p></div>`;
       } else if (slot && slot.rest) {
-        effHtml = `<div class="pl-eff"><div class="k">Zone d’effort visée</div><div class="v">Repos <small>aucune série de musculation</small></div>${z ? effScale(T, z, null, null) : ''}<p class="note">Le repos fait partie du programme : ${st.prog.cycles[0].filter((d) => d.rest).length} jours par semaine de programme.</p></div>`;
+        effHtml = `<div class="pl-eff"><div class="k">${hic('target', 'strain')}Zone d’effort visée</div><div class="v">Repos <small>aucune série de musculation</small></div>${z ? effScale(T, z, null, null) : ''}<p class="note">Le repos fait partie du programme : ${st.prog.cycles[0].filter((d) => d.rest).length} jours par semaine de programme.</p></div>`;
       }
 
       // ---- ta journée : agenda + créneau
-      let dayHtml = '<div class="pl-day"><div class="k">Ta journée</div>';
+      let dayHtml = `<div class="pl-day"><div class="k">${hic('calendar', 'accent')}Ta journée</div>`;
       if (cal.state === 'ok') {
         const sug = sp && !done ? P().suggestSlot(M, cal.events, t, sp.dur) : null;
         const items = (evToday || []).map((e) => ({ t: e.allDay ? 'journée' : `${P().hm(e.start)}–${P().hm(e.end)}`, s: e.allDay ? 0 : e.start.getTime(), l: e.title, k: 'ev' }));
@@ -165,16 +167,16 @@
       let bed = null;
       if (slp) { const [h, m] = wake.split(':').map(Number); const mins = h * 60 + m - Math.round(slp.need * 60) - 15; const mm = ((mins % 1440) + 1440) % 1440; bed = `${String(Math.floor(mm / 60)).padStart(2, '0')} h ${String(mm % 60).padStart(2, '0')}`; }
       const stepsT = M.cfg.targets.stepsGoal;
-      const tgtHtml = `<div class="pl-tg"><div class="k">Cibles du jour</div>
-        <div class="statline"><span>Calories · protéines</span><b>${tg ? `${nf(tg.kcal, 0)} kcal · ${nf(tg.prot, 0)} g` : '—'}</b></div>
-        ${tg ? `<div class="statline"><span>Glucides · lipides</span><b>${nf(tg.carb, 0)} g · ${nf(tg.fat, 0)} g</b></div>` : ''}
-        <div class="statline"><span>Hydratation</span><b>${hyd ? `≈ ${nf(hyd / 1000, 1)} L` : '—'}</b></div>
-        <div class="statline"><span>Pas</span><b>${nf(stepsT, 0)}${xt && isNum(xt.steps) ? ` · ${nf(xt.steps, 0)} à l’export` : ''}</b></div>
-        <div class="statline"><span>Sommeil cette nuit</span><b>${slp ? `${fH(slp.need)}${bed ? ` · couché vers ${bed}` : ''}` : '—'}</b></div>
+      const goal = (ic, tone, lab, val, sub) => `<div class="goal" style="--tc:var(--${tone})"><span class="gi">${SD.icon(ic)}</span><span>${lab}${sub ? `<small>${sub}</small>` : ''}</span><b>${val}</b></div>`;
+      const tgtHtml = `<div class="pl-tg"><div class="k">${hic('flag', 'rec')}Cibles du jour</div>
+        ${goal('flame', 'nutri', 'Calories', tg ? `${nf(tg.kcal, 0)} kcal` : '—', tg ? `protéines ${nf(tg.prot, 0)} g · glucides ${nf(tg.carb, 0)} g · lipides ${nf(tg.fat, 0)} g` : '')}
+        ${goal('droplet', 'hydro', 'Hydratation', hyd ? `≈ ${nf(hyd / 1000, 1)} L` : '—', '')}
+        ${goal('steps', 'act', 'Pas', nf(stepsT, 0), xt && isNum(xt.steps) ? `${nf(xt.steps, 0)} à l’export` : '')}
+        ${goal('moon', 'sleep', 'Sommeil cette nuit', slp ? fH(slp.need) : '—', slp && bed ? `couché vers ${bed}` : '')}
         ${coach && (coach.nutri || coach.steps) ? `<p class="note">Coach : ${esc([coach.nutri && 'nutrition ' + coach.nutri, coach.steps && 'pas ' + coach.steps].filter(Boolean).join(' · ').slice(0, 240))}</p>` : ''}
         <p class="note">Hydratation : 35 ml/kg (EFSA 2010) + 0,5 L par heure de séance. Coucher calculé pour un réveil à ${esc(wake)}.</p></div>`;
 
-      el.innerHTML = `<div class="pl-head"><div><div class="eyebrow">Aujourd’hui · ${esc(dayName(t))}</div><h2 class="pl-title">${title}</h2><div class="pl-sub">${subl}</div></div>${goBox}</div>
+      el.innerHTML = `<div class="pl-head"><div><div class="eyebrow">${SD.icon('today')}Aujourd’hui · ${esc(dayName(t))}</div><h2 class="pl-title">${title}</h2><div class="pl-sub">${subl}</div></div>${goBox}</div>
         <div class="pl-grid">${effHtml}${dayHtml}${tgtHtml}</div>`;
       const cb = document.getElementById('pl-cal');
       if (cb) cb.onclick = () => SD.cal.load();
@@ -182,7 +184,7 @@
       // ---- séance du jour
       let ses = '';
       if (coach && coach.plan && coach.plan.lines.length) {
-        ses += `<div class="coachbox"><div class="k">Décision du coach · ${esc(fdM(coach.d))}${coach.plan.title ? ` · ${esc(coach.plan.title)}` : ''}</div><ul>${coach.plan.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+        ses += `<div class="coachbox"><div class="k">${SD.icon('chat')}Décision du coach · ${esc(fdM(coach.d))}${coach.plan.title ? ` · ${esc(coach.plan.title)}` : ''}</div><ul>${coach.plan.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
       }
       if (sp) {
         const restTxt = (s) => (isNum(s) ? (s >= 60 ? `${Math.floor(s / 60)}′${s % 60 ? String(s % 60).padStart(2, '0') : ''}` : `${s}″`) : '');
@@ -257,7 +259,7 @@
       // ---- note du jour (héros)
       const ds = SD.scores.dayScore(x);
       const nut = SD.scores.nutriScore(x);
-      const PC = { sleep: T.sleep, train: T.strain, nutri: T.nutri, steps: T.act, hydro: T.s[0] };
+      const PC = { sleep: T.sleep, train: T.strain, nutri: T.nutri, steps: T.act, hydro: T.hydro };
       const parts = SD.scores.dayParts(x).map((p) => Object.assign(p, { c: PC[p.k] }));
       setHTML('td-score', ring({ value: ds, max: 100, color: SD.scoreColor(ds), text: isNum(ds) ? SD.scores.grade(ds) : null, unit: isNum(ds) ? `${nf(ds, 0)} / 100` : '', label: 'Note du jour', size: 200, stroke: 11, cls: 'xl' }));
       setText('td-verdict', dayVerdict(ds, parts));
@@ -274,15 +276,21 @@
       const tgt = SD.scores.strainTarget(x.rec);
       const zone = SD.scores.strainZone(x.strain);
       const need = x.sleepNeed;
+      // cartes anneau façon cartes santé : anneau à gauche, titre + statut + détails à droite
+      const rcard = (rg, title, status, lines) => `<div class="rcard">${rg}<div class="rc-body"><div class="rc-t"><span>${title}</span>${status || ''}</div><div class="lines">${lines}</div></div></div>`;
+      const rsz = { size: 104, stroke: 11, hideLabel: true };
+      const perf = x.sleepPerf;
       setHTML('td-rings', [
-        `<div class="rcard">${ring({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récupération' })}
-          <div class="lines">HRV ${zTxt('hrv', 0)} · FC repos ${zTxt('rhr', 0)}<br>Respiration ${zTxt('resp', 1)}</div></div>`,
-        `<div class="rcard">${ring({ value: x.sleepPerf, max: 100, color: T.sleep, unit: '%', label: 'Sommeil' })}
-          <div class="lines">${isNum(x.sleepH) ? `<b>${fH(x.sleepH)}</b> dormies · besoin ${fH(need)}` : 'Pas de nuit enregistrée'}<br>${isNum(x.sleepDebt7) ? `Manque sur 7 nuits <b>${fH(x.sleepDebt7)}</b>` : ''}${isNum(x.sleepCons) ? ` · régularité <b>${nf(x.sleepCons, 0)}</b>` : ''}</div></div>`,
-        x.eff ? `<div class="rcard">${ring({ value: SD.scores.trainScore(x), max: 100, color: T.strain, text: nf(x.eff.stim, 1), unit: 'séries eff.', label: 'Effort muscu' })}
-          <div class="lines">Zone <b>${esc(zoneLabel(x.eff.zone).toLowerCase())}</b>${isNum(x.effPlan) ? ` · prévu <b>${nf(x.effPlan, 1)}</b> (${Math.round((x.eff.stim / x.effPlan) * 100)} %)` : ''}<br>${nf(x.eff.sets, 1)} séries dont <b>${nf(x.eff.hard, 1)}</b> dures · RIR moyen <b>${isNum(x.eff.rir) ? nf(x.eff.rir, 1) : '—'}</b> · ${nf(x.eff.vol, 0)} kg</div></div>`
-          : `<div class="rcard">${ring({ value: isNum(x.steps) ? Math.min(100, (x.steps / cfg.stepsGoal) * 100) : null, max: 100, color: T.act, text: isNum(x.steps) ? nf(x.steps / 1000, 1) + 'k' : null, unit: 'pas', label: 'Jour sans muscu' })}
-          <div class="lines">${zone ? `Activité <b>${SD.scores.STRAIN_LABEL[zone].toLowerCase()}</b> · ` : ''}${nf(x.activeKcal, 0)} kcal actives<br>Pas <b>${nf(x.steps, 0)}</b> / ${nf(cfg.stepsGoal, 0)}</div></div>`,
+        rcard(ring(Object.assign({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récupération' }, rsz)), 'Récupération', SD.statusPill(x.rec, 67, 34, ['Zone verte', 'Zone jaune', 'Zone rouge']),
+          `HRV ${zTxt('hrv', 0)} · FC repos ${zTxt('rhr', 0)}<br>Respiration ${zTxt('resp', 1)}`),
+        rcard(ring(Object.assign({ value: perf, max: 100, color: T.sleep, unit: '% du besoin', label: 'Sommeil' }, rsz)), 'Sommeil', isNum(perf) ? SD.statusPill(perf, 90, 75, ['Suffisant', 'Un peu court', 'Insuffisant']) : '',
+          `${isNum(x.sleepH) ? `<b>${fH(x.sleepH)}</b> dormies · besoin ${fH(need)}` : 'Pas de nuit enregistrée'}<br>${isNum(x.sleepDebt7) ? `Manque sur 7 nuits <b>${fH(x.sleepDebt7)}</b>` : ''}${isNum(x.sleepCons) ? ` · régularité <b>${nf(x.sleepCons, 0)}</b>` : ''}`),
+        x.eff
+          ? rcard(ring(Object.assign({ value: SD.scores.trainScore(x), max: 100, color: T.strain, text: nf(x.eff.stim, 1), unit: 'séries eff.', label: 'Effort musculation' }, rsz)), 'Effort musculation', `<span class="status ok">${esc(zoneLabel(x.eff.zone))}</span>`,
+            `${isNum(x.effPlan) ? `Prévu <b>${nf(x.effPlan, 1)}</b> · réalisé <b>${Math.round((x.eff.stim / x.effPlan) * 100)} %</b><br>` : ''}${nf(x.eff.sets, 1)} séries dont <b>${nf(x.eff.hard, 1)}</b> dures · RIR moyen <b>${isNum(x.eff.rir) ? nf(x.eff.rir, 1) : '—'}</b> · ${nf(x.eff.vol, 0)} kg`)
+          : rcard(ring(Object.assign({ value: isNum(x.steps) ? Math.min(100, (x.steps / cfg.stepsGoal) * 100) : null, max: 100, color: T.act, text: isNum(x.steps) ? nf(x.steps / 1000, 1) + 'k' : null, unit: 'pas', label: 'Pas' }, rsz)), 'Jour sans muscu',
+            isNum(x.steps) ? SD.statusPill((x.steps / cfg.stepsGoal) * 100, 100, 80, ['Objectif atteint', 'Presque', 'Sous l’objectif']) : '',
+            `${zone ? `Activité <b>${SD.scores.STRAIN_LABEL[zone].toLowerCase()}</b> · ` : ''}${nf(x.activeKcal, 0)} kcal actives<br>Pas <b>${nf(x.steps, 0)}</b> / ${nf(cfg.stepsGoal, 0)}`),
       ].join(''));
 
       // ---- biomarqueurs
@@ -304,7 +312,7 @@
       const act = x.w.map((w) => `<div class="statline"><span><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${typeColor(w.type)};margin-right:7px"></i>${esc(w.type)}${STRENGTH.has(w.type) && x.split ? ` · ${esc(x.split)}` : ''}</span><b>${w.min != null ? fHM(w.min) : w.flag ? 'durée ignorée' : '—'}</b></div>`).join('');
       const sets = SD.sum(SD.pluck(x.ex, (e) => e.sets)), vol = SD.sum(SD.pluck(x.ex, (e) => e.vol));
       const prs = x.ex.filter((e) => e.pr);
-      const acwrZone = (v) => (v > 1.5 ? ['risque', T.crit] : v > 1.3 ? ['vigilance', T.warn] : v >= 0.8 ? ['optimal', T.good] : ['sous-charge', T.ink2]);
+      const acwrZone = (v) => (v > 1.5 ? ['risque', T.critInk] : v > 1.3 ? ['vigilance', T.warnInk] : v >= 0.8 ? ['optimal', T.goodInk] : ['sous-charge', T.ink2]);
       const wk0 = SD.weekOf(d);
       let weekTrain = 0;
       for (let q = wk0; q <= d; q = addD(q, 1)) { const y = M.at(q); if (y && y.train) weekTrain++; }
@@ -315,7 +323,7 @@
         ${x.eff ? `<div class="statline"><span>Effort musculation</span><b>${nf(x.eff.stim, 1)} séries efficaces · ${esc(zoneLabel(x.eff.zone).toLowerCase())}${isNum(x.effPlan) ? ` · ${Math.round((x.eff.stim / x.effPlan) * 100)} % du prévu` : ''}</b></div>
         <div class="statline"><span>Séries dures (RIR ≤ 3) · à l’échec</span><b>${nf(x.eff.hard, 1)} · ${x.eff.fail}</b></div>` : ''}
         ${x.ex.length ? `<div class="statline"><span>Exercices · séries · volume</span><b>${x.ex.length} · ${sets} · ${nf(vol, 0)} kg</b></div>` : ''}
-        ${prs.length ? `<div class="statline"><span>Records personnels</span><b style="color:${T.good}">${prs.map((e) => esc(e.n) + ' ' + nf(e.e1, 1) + ' kg').join(', ')}</b></div>` : ''}
+        ${prs.length ? `<div class="statline"><span>Records personnels</span><b style="color:${T.goodInk}">${prs.map((e) => esc(e.n) + ' ' + nf(e.e1, 1) + ' kg').join(', ')}</b></div>` : ''}
         <div class="statline"><span>Pas</span><b>${nf(x.steps, 0)} / ${nf(cfg.stepsGoal, 0)}</b></div>
         <div class="bar2"><i style="width:${Math.min(100, ((x.steps || 0) / cfg.stepsGoal) * 100)}%;background:${T.act}"></i></div>
         <div class="statline"><span>Calories actives · repos</span><b>${nf(x.activeKcal, 0)} · ${nf(x.restKcal, 0)} kcal</b></div>
@@ -347,15 +355,15 @@
       const macro = (lab, v, t, col, u) => `<div class="macro"><span>${lab}</span><div class="bar2" style="margin:0"><i style="width:${t ? Math.min(100, ((v || 0) / t) * 100) : 0}%;background:${col}"></i></div><b>${nf(v, 0)}${t ? ' / ' + nf(t, 0) : ''} ${u}</b></div>`;
       setHTML('td-nut-b', isNum(x.kcal) ? `
         <div class="statline"><span>Calories</span><b>${nf(x.kcal, 0)}${tg ? ' / ' + nf(tg.kcal, 0) : ''} kcal ${isNum(nut) ? `· score ${nf(nut, 0)}` : ''}</b></div>
-        ${macro('Protéines', x.prot, tg && tg.prot, T.s[0], 'g')}${macro('Glucides', x.carb, tg && tg.carb, T.nutri, 'g')}${macro('Lipides', x.fat, tg && tg.fat, T.s[2], 'g')}
+        ${macro('Protéines', x.prot, tg && tg.prot, T.s[0], 'g')}${macro('Glucides', x.carb, tg && tg.carb, T.s[1], 'g')}${macro('Lipides', x.fat, tg && tg.fat, T.s[2], 'g')}
         <div class="statline"><span>Protéines / kg</span><b>${isNum(x.prot) && isNum(x.trendW) ? nf(x.prot / x.trendW, 2) : '—'} g/kg</b></div>
         <div class="statline"><span>Fibres · caféine</span><b>${nf(x.fiber, 0)} g · ${nf(x.caffeine, 0)} mg</b></div>
-        ${isNum(x.alcohol) && x.alcohol > 0 ? `<div class="statline"><span>Alcool</span><b style="color:${T.warn}">${nf(x.alcohol, 0)} g</b></div>` : ''}
+        ${isNum(x.alcohol) && x.alcohol > 0 ? `<div class="statline"><span>Alcool</span><b style="color:${T.warnInk}">${nf(x.alcohol, 0)} g</b></div>` : ''}
         ${!lg ? `<p class="note">Journée sous le seuil de log partiel (${nf(SD.partialKcal(), 0)} kcal) : exclue des moyennes.</p>` : ''}
         ${isNum(x.tdee) ? `<div class="statline"><span>Balance vs dépense MacroFactor</span><b>${sgn(x.kcal - x.tdee, 0)} kcal</b></div>` : ''}` : '<div class="empty">Rien de loggé dans MacroFactor ce jour-là.</div>');
       const ht = SD.scores.hydroTarget(x), hTot = SD.scores.hydroTotal(x), dr = SD.scores.drinks(x);
       document.getElementById('td-nut-b').insertAdjacentHTML('beforeend', `<div class="statline" style="margin-top:6px"><span>Hydratation</span><b>${isNum(hTot) ? `${nf(hTot / 1000, 1)} / ${nf(ht / 1000, 1)} L` : `cible ${ht ? nf(ht / 1000, 1) + ' L' : '—'}`}</b></div>
-        ${isNum(hTot) ? `<div class="bar2"><i style="width:${Math.min(100, (hTot / ht) * 100)}%;background:${T.s[0]}"></i></div><p class="note">Dont ${nf(dr / 1000, 1)} L de boissons notées et ${nf((x.water || 0) / 1000, 1)} L d’eau des aliments.</p>`
+        ${isNum(hTot) ? `<div class="bar2"><i style="width:${Math.min(100, (hTot / ht) * 100)}%;background:${T.hydro}"></i></div><p class="note">Dont ${nf(dr / 1000, 1)} L de boissons notées et ${nf((x.water || 0) / 1000, 1)} L d’eau des aliments.</p>`
           : `<p class="note">Boissons non notées ce jour-là${isNum(x.water) ? ` (eau des aliments : ${nf(x.water / 1000, 2)} L)` : ''}. Note-les dans Apple Santé (widget ou raccourci « Eau ») pour les suivre ici.</p>`}`);
 
       // ---- journal

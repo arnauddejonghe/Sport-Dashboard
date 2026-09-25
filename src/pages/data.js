@@ -3,7 +3,7 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, fH, fHM, fdM, fdate, esc, chart, base, tipBox, xCat } = SD;
-  const { card, setHTML, setText } = SD.ui;
+  const { card, hic, setHTML, setText } = SD.ui;
   let page = 1, sort = { k: 'd', dir: -1 };
 
   const COLS = [
@@ -18,15 +18,15 @@
   const data = {
     id: 'data', title: 'Données', sub: 'D’où viennent les chiffres, comment ils sont calculés, et comment les mettre à jour.',
     html() {
-      return `<section class="card c6"><div class="card-h"><div><h2>Synchronisation Google Drive</h2><p class="sub">À chaque ouverture, le dashboard cherche tes nouveaux exports dans ton dossier de suivi.</p></div></div><div id="sync-page"></div>
+      return `<section class="card c6"><div class="card-h"><div><h2>${hic('data', 'accent')}Synchronisation Google Drive</h2><p class="sub">À chaque ouverture, le dashboard cherche tes nouveaux exports dans ton dossier de suivi.</p></div></div><div id="sync-page"></div>
           <p class="note">Fichiers reconnus : Health Export ou raccourci Apple Santé (.csv) ; MacroFactor (.xlsx ou .csv) : export complet, rapide (7 derniers jours, avec le journal de séries et le RIR) ou granulaire (journal de séries complet recommandé) ; TrainAI (.xlsx) ; feuille ou CSV « Journal… » / « Retours… » (colonnes Date, Heure, Source, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleur &lt;zone&gt;, Modifié ; plusieurs lignes par jour possibles ; le script <code>scripts/journal-sheet.gs</code> y intègre les saisies du dashboard) ; rapports « AAAA-MM-JJ_coach.md » ; bilans « Bilan… » (Date;Marqueur;Valeur;Unité;Min;Max) ; photos dans le sous-dossier « Photos » (AAAA-MM-JJ_face.jpg, _profil, _dos), lues à la demande.</p></section>
-        <section class="card c6"><div class="card-h"><div><h2>Import manuel</h2><p class="sub">Glisse des exports : ils sont lus dans ton navigateur, rien n’est envoyé.</p></div></div>
+        <section class="card c6"><div class="card-h"><div><h2>${hic('flag', 'accent')}Import manuel</h2><p class="sub">Glisse des exports : ils sont lus dans ton navigateur, rien n’est envoyé.</p></div></div>
           <label class="drop" id="drop" for="file-in"><input type="file" id="file-in" multiple accept=".csv,.xlsx,.md"><strong>Glisse tes fichiers ici</strong> ou clique pour les choisir</label>
           <ul class="log" id="import-log"></ul><div id="import-banner"></div></section>
-        <section class="card c12"><div class="card-h"><div><h2>Sources chargées</h2><p class="sub" id="src-sub"></p></div></div><div class="tbl-wrap tbl-scroll" id="src-b" style="max-height:300px"></div></section>
-        ${card('c12', 'dt-cov', 'Couverture des données', 'Part des jours du mois où la mesure existe', '', { h: 'tall' })}
-        ${card('c12', 'dt-tbl', 'Données journalières', 'Filtres actifs appliqués · clic sur une ligne pour le détail', '', { table: false, body: '<div class="tbl-wrap tbl-scroll" id="dt-tbl-b" style="max-height:560px"></div><button type="button" class="link" id="dt-more" hidden>Afficher plus</button>' })}
-        <section class="card c12"><div class="card-h"><div><h2>Méthode</h2><p class="sub">Comment chaque indicateur est calculé</p></div></div><dl class="method">
+        <section class="card c12"><div class="card-h"><div><h2>${hic('list', 'accent')}Sources chargées</h2><p class="sub" id="src-sub"></p></div></div><div class="tbl-wrap tbl-scroll" id="src-b" style="max-height:300px"></div></section>
+        ${card('c12', 'dt-cov', 'Couverture des données', 'Part des jours du mois où la mesure existe', '', { icon: 'overview', tone: 'accent', h: 'tall' })}
+        ${card('c12', 'dt-tbl', 'Données journalières', 'Filtres actifs appliqués · clic sur une ligne pour le détail', '', { icon: 'table', tone: 'accent', table: false, body: '<div class="tbl-wrap tbl-scroll" id="dt-tbl-b" style="max-height:560px"></div><button type="button" class="link" id="dt-more" hidden>Afficher plus</button>' })}
+        <section class="card c12"><div class="card-h"><div><h2>${hic('info', 'accent')}Méthode</h2><p class="sub">Comment chaque indicateur est calculé</p></div></div><dl class="method">
           <dt>Normes personnelles</dt><dd>Pour chaque mesure, médiane et écart robuste (1,4826 × écart absolu médian) des 30 jours précédents, avec au moins 10 valeurs. La « plage normale » affichée sur les graphiques est médiane ± 1 écart ; « σ » exprime l’écart du jour dans cette unité.</dd>
           <dt>Récupération (0–100)</dt><dd>HRV (45 %), FC au repos inversée (30 %), performance du sommeil (15 %) et fréquence respiratoire inversée (10 %), chacune en écart à ta norme. Le composite suit une loi normale et est converti par Φ : vert ≥ 67, jaune 34–66, rouge ≤ 33, comme chez Whoop.</dd>
           <dt>Charge (0–100)</dt><dd>100 × (1 − e^(−charge / 1 100)), où charge = calories actives + 3 × minutes de musculation. Échelle à rendement décroissant : chaque point coûte plus d’effort que le précédent, 100 = effort maximal. Repères : &lt; 50 légère, 50–69 modérée, 70–84 élevée, ≥ 85 très élevée. Charge conseillée = 38 + 0,48 × récupération (± 7).</dd>
