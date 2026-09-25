@@ -3,7 +3,7 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fdM, esc, tms, mean, chart, base, tipBox, xCat, yVal, line, ring, rangeBar, spark } = SD;
-  const { card, setHTML, setText } = SD.ui;
+  const { card, hic, setHTML, setText } = SD.ui;
 
   function fitnessAge(vo2, sex) {
     // âge auquel la médiane FRIEND vaut ta VO₂max (interpolation inverse, 20–80 ans)
@@ -16,13 +16,13 @@
     id: 'longevity', title: 'Longévité', sub: 'Âge biologique estimé à partir de tes marqueurs, et état de tes biomarqueurs face aux normes de population et à ta propre norme.',
     html() {
       return `<section class="card c12"><div class="hero"><div id="lg-ring"></div><div>
-          <div class="card-h" style="margin:0"><div><h2>Âge biologique</h2><p class="sub" id="lg-sub"></p></div></div>
+          <div class="card-h" style="margin:0"><div><h2>${hic('longevity', 'age')}Âge biologique</h2><p class="sub" id="lg-sub"></p></div></div>
           <h3 id="lg-verdict"></h3><p id="lg-pace"></p><div id="lg-factors" style="margin-top:12px"></div></div></div>
           <p class="note" id="lg-note"></p></section>
-        ${card('c8', 'lg-hist', 'Âge biologique dans le temps', 'Estimation sur 90 jours glissants, chaque mois, comparée à ton âge réel')}
-        ${card('c4', 'lg-vo2', 'Capacité cardiorespiratoire', null, '', { table: false, body: '<div id="lg-vo2-b"></div>' })}
-        ${card('c12', 'lg-bm', 'Biomarqueurs', 'Moyenne des 30 derniers jours de la période (180 j pour la VO₂max) · zones = normes de population · cadre = ta norme (90 jours précédents)', '', { table: false, body: '<div id="lg-bm-b"></div>' })}
-        ${card('c12', 'lg-labs', 'Bilans sanguins', null, '', { table: false, body: '<div id="lg-labs-b"></div>' })}`;
+        ${card('c8', 'lg-hist', 'Âge biologique dans le temps', 'Estimation sur 90 jours glissants, chaque mois, comparée à ton âge réel', '', { icon: 'longevity', tone: 'age' })}
+        ${card('c4', 'lg-vo2', 'Capacité cardiorespiratoire', null, '', { icon: 'wind', tone: 'age', table: false, body: '<div id="lg-vo2-b"></div>' })}
+        ${card('c12', 'lg-bm', 'Biomarqueurs', 'Moyenne des 30 derniers jours de la période (180 j pour la VO₂max) · zones = normes de population · cadre = ta norme (90 jours précédents)', '', { icon: 'hrv', tone: 'age', table: false, body: '<div id="lg-bm-b"></div>' })}
+        ${card('c12', 'lg-labs', 'Bilans sanguins', null, '', { icon: 'droplet', tone: 'age', table: false, body: '<div id="lg-labs-b"></div>' })}`;
     },
     update() {
       const { M, S, T } = SD;
@@ -47,7 +47,7 @@
         const w = Math.min(50, (Math.abs(f.years) / maxY) * 50);
         const col = f.years <= 0 ? T.good : T.crit;
         const bar = f.years <= 0 ? `<i style="right:50%;width:${w}%;background:${col}"></i>` : `<i style="left:50%;width:${w}%;background:${col}"></i>`;
-        return `<div class="factor" title="${esc(f.source)}"><div class="fn"><b>${esc(f.label)} · ${nf(f.value, f.digits)} ${esc(f.unit)}</b><span>${esc(f.note)} · ${esc(f.refLabel)}</span></div><div class="fbar">${bar}</div><div class="yrs" style="color:${col}">${sgn(f.years, 1)} an${Math.abs(f.years) >= 2 ? 's' : ''}</div></div>`;
+        return `<div class="factor" title="${esc(f.source)}"><div class="fn"><b>${esc(f.label)} · ${nf(f.value, f.digits)} ${esc(f.unit)}</b><span>${esc(f.note)} · ${esc(f.refLabel)}</span></div><div class="fbar">${bar}</div><div class="yrs" style="color:${f.years <= 0 ? T.goodInk : T.critInk}">${sgn(f.years, 1)} an${Math.abs(f.years) >= 2 ? 's' : ''}</div></div>`;
       }).join(''));
       setText('lg-note', 'Modèle indicatif, pas un diagnostic. Chaque marqueur est comparé à une référence de population ; son risque relatif de mortalité publié est converti en années via la loi de Gompertz (le risque double environ tous les 8 ans). Sources : ' + [...new Set(b.factors.map((f) => f.source))].join(' · ') + '. Les facteurs se recoupent en partie (pas et VO₂max, par exemple) : l’écart total est plafonné à 12 ans.');
 
@@ -71,7 +71,7 @@
         setHTML('lg-vo2-b', `<div class="statline"><span>VO₂max estimée (Apple Watch)</span><b>${nf(vf.value, 1)} mL/kg/min</b></div>
           <div class="statline"><span>Médiane de ton âge (FRIEND)</span><b>${nf(vf.ref, 1)}</b></div>
           <div style="margin:12px 0 4px">${rangeBar({ scale: [vf.ref * 0.6, vf.ref * 1.4], zones: [[vf.ref * 0.6, vf.ref * 0.75, 'crit'], [vf.ref * 0.75, vf.ref * 0.9, 'warn'], [vf.ref * 0.9, vf.ref * 1.1, 'ok'], [vf.ref * 1.1, vf.ref * 1.4, 'good']], value: vf.value, color: T.ink })}</div>
-          <div class="statline"><span>Âge cardiorespiratoire</span><b style="color:${fa <= b.chrono ? T.good : T.crit}">${nf(fa, 0)} ans</b></div>
+          <div class="statline"><span>Âge cardiorespiratoire</span><b style="color:${fa <= b.chrono ? T.goodInk : T.critInk}">${nf(fa, 0)} ans</b></div>
           <div class="statline"><span>Écart vs médiane</span><b>${sgn(((vf.value - vf.ref) / 3.5), 1)} MET</b></div>
           <p class="note">Chaque MET (3,5 mL/kg/min) gagné est associé à −13 % de mortalité (Kodama, JAMA 2009). L’estimation de la montre sous-évalue souvent les profils musclés : compare-la surtout à elle-même dans le temps.</p>`);
       } else setHTML('lg-vo2-b', '<div class="empty">Aucune VO₂max estimée sur la dernière année. Elle se mesure pendant les marches et courses en extérieur avec l’Apple Watch.</div>');

@@ -17,6 +17,14 @@ Tableau de bord personnel d'entraînement et de santé, dans l'esprit de Whoop e
 | Longévité | Âge biologique et rythme de vieillissement, facteurs sourcés, 20+ biomarqueurs, bilans sanguins |
 | Données | Synchronisation Google Drive, import manuel, sources, couverture, méthode détaillée de chaque calcul |
 
+## Apparence
+
+- **Thème clair ou sombre** : automatique (suit le réglage du système), ou forcé avec le sélecteur ☀ / 🖥 / ☾ en bas de la barre latérale (dans « Plus » sur téléphone). Le choix est mémorisé dans le navigateur ; les graphiques se redessinent aux couleurs du thème.
+- **Cartes façon cartes santé** (Apple Santé, Whoop, Oura) : icône teintée et libellé, grande valeur, état (pastille avec pictogramme : ✓ bon, ! à surveiller, × alerte), écart à la période précédente, tendance ou jauge.
+- **Lisibilité** : police Inter, titres en casse normale, textes secondaires contrastés (AA). Les sous-titres méthodologiques longs sont repliés sur deux lignes : « Détails » les déplie.
+- **Téléphone** : barre d'onglets en bas (Aujourd'hui, Journal, Résultats, Physique, Plus), semaine à venir en carrousel, détail du jour en panneau glissant.
+- **Couleurs** : chaque pilier garde sa couleur (récupération, sommeil, entraînement, activité, nutrition, corps) ; palettes vérifiées pour les daltoniens (écarts de couleur entre voisins) et le contraste, en clair comme en sombre. Les couleurs de statut (vert, ambre, rouge) sont réservées aux états.
+
 ## Lire les graphiques
 
 - Survol : réticule avec la date et la valeur, écart à ta norme (σ), plage normale et composantes du jour.
@@ -104,9 +112,9 @@ src/muscles.js          exercices → muscles, volume direct / indirect
 src/drive.js            synchronisation Google Drive, photos à la demande
 src/pages/*.js          les dix pages
 src/app.js              navigation, filtres, chronologie, détail du jour, import, persistance
-src/styles.css          thème sombre
+src/styles.css          thème clair et sombre (tokens de couleur), cartes, navigation
 scripts/build.js        build des données et du fichier unique
 scripts/journal-sheet.gs  script Apps Script de la feuille du journal
 ```
 
-Graphiques : [Apache ECharts](https://echarts.apache.org/) 5.5. Lecture des .xlsx : [SheetJS](https://sheetjs.com/).
+Graphiques : [Apache ECharts](https://echarts.apache.org/) 5.5. Lecture des .xlsx : [SheetJS](https://sheetjs.com/). Police : [Inter](https://rsms.me/inter/) (Google Fonts).

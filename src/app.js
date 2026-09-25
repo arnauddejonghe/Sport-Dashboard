@@ -8,29 +8,54 @@
   const PAGE_ORDER = ['today', 'journal', 'overview', 'physique', 'strength', 'training', 'recovery', 'body', 'longevity', 'data'];
   // navigation groupée : le quotidien, les résultats, le détail, les données
   const NAV_GROUPS = [['Quotidien', ['today', 'journal']], ['Résultats', ['overview', 'physique', 'strength']], ['Détail', ['training', 'recovery', 'body', 'longevity']], ['', ['data']]];
+  // barre d'onglets mobile : les pages du quotidien et des résultats, le reste dans « Plus »
+  const TABS = ['today', 'journal', 'overview', 'physique'];
+  const TAB_LABEL = { today: 'Aujourd’hui', journal: 'Journal', overview: 'Résultats', physique: 'Physique' };
   SD.PAGE_ORDER = PAGE_ORDER;
-  const ICONS = {
-    today: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
-    overview: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
-    recovery: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
-    training: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
-    strength: '<path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/>',
-    body: '<path d="M12 21c-4 0-7-3.5-7-8 0-3 2-5 4.5-5 1.2 0 2 .6 2.5 1 .5-.4 1.3-1 2.5-1C17 8 19 10 19 13c0 4.5-3 8-7 8zM12 8c0-2 1-4 3-5"/>',
-    longevity: '<path d="M7 3h10M7 21h10M8 3c0 5 8 5 8 9s-8 4-8 9M16 3c0 5-8 5-8 9"/>',
-    journal: '<path d="M6 3h11a2 2 0 0 1 2 2v16H8a3 3 0 0 1-3-3V4a1 1 0 0 1 1-1zM5 18a3 3 0 0 1 3-3h11M9 7h6M9 11h4"/>',
-    data: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.5"/><path d="M4.5 5.5v13c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-13M4.5 12c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5"/>',
-    physique: '<circle cx="12" cy="4.5" r="2.2"/><path d="M5 9.5c2.2 1 4.5 1.5 7 1.5s4.8-.5 7-1.5M12 11v5M12 16l-3 5M12 16l3 5"/>',
-  };
-  const icon = (id) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[id] || ''}</svg>`;
+  const icon = (id) => SD.icon(id);
 
   // ================================================================ navigation & en-tête
   const navLabel = (id) => SD.PAGES[id].nav || SD.PAGES[id].title;
   function renderNav() {
-    const items = PAGE_ORDER.filter((id) => SD.PAGES[id]);
-    const btn = (id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${icon(id)}${esc(navLabel(id))}</button>`;
+    const btn = (id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${icon(id)}<span>${esc(navLabel(id))}</span></button>`;
     $('#nav').innerHTML = NAV_GROUPS.map(([g, ids]) => { const its = ids.filter((id) => SD.PAGES[id]); return its.length ? `${g ? `<div class="nav-g">${esc(g)}</div>` : '<div class="nav-sep"></div>'}${its.map(btn).join('')}` : ''; }).join('');
-    $('#mnav').innerHTML = items.map((id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${esc(navLabel(id))}</button>`).join('');
+    const inMore = !TABS.includes(S.page);
+    $('#mnav').innerHTML = TABS.filter((id) => SD.PAGES[id]).map((id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${icon(id)}<span>${esc(TAB_LABEL[id] || navLabel(id))}</span></button>`).join('')
+      + `<button type="button" data-more aria-haspopup="dialog" aria-current="${inMore ? 'page' : 'false'}">${icon('more')}<span>${inMore ? esc(navLabel(S.page)) : 'Plus'}</span></button>`;
+    $('#navsheet-b').innerHTML = NAV_GROUPS.map(([g, ids]) => { const its = ids.filter((id) => SD.PAGES[id]); return its.length ? `<h3>${esc(g || 'Réglages')}</h3><div class="sheet-grid">${its.map((id) => `<button type="button" data-page="${id}" aria-current="${S.page === id ? 'page' : 'false'}">${icon(id)}${esc(navLabel(id))}</button>`).join('')}</div>` : ''; }).join('');
+    renderThemeSwitch();
   }
+  function openSheet(on) {
+    $('#navsheet').hidden = !on;
+    $('#sheet-scrim').hidden = !on;
+  }
+
+  // ================================================================ thème clair / sombre / automatique
+  const THEME_KEY = 'sdm-theme';
+  const themeMode = () => { try { const t = localStorage.getItem(THEME_KEY); return t === 'light' || t === 'dark' ? t : 'auto'; } catch (e) { return 'auto'; } };
+  function renderThemeSwitch() {
+    const m = themeMode();
+    const opts = [['light', 'sun', 'Clair'], ['auto', 'monitor', 'Automatique (système)'], ['dark', 'moon', 'Sombre']];
+    document.querySelectorAll('[data-theme-sw]').forEach((el) => {
+      el.setAttribute('role', 'group');
+      el.setAttribute('aria-label', 'Thème');
+      el.innerHTML = opts.map(([k, ic, l]) => `<button type="button" data-theme-set="${k}" aria-pressed="${m === k}" title="${l}" aria-label="${l}">${icon(ic)}</button>`).join('');
+    });
+  }
+  /** Relit les tokens et redessine les graphiques (après un changement de thème) */
+  function repaint() {
+    if (!SD.M) return;
+    SD.readTheme();
+    renderTimeline();
+    showPage(S.page, { keepScroll: true });
+  }
+  function setTheme(mode) {
+    try { if (mode === 'auto') localStorage.removeItem(THEME_KEY); else localStorage.setItem(THEME_KEY, mode); } catch (e) { /* ignoré */ }
+    if (mode === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', mode);
+    renderThemeSwitch();
+    repaint();
+  }
+  SD.setTheme = setTheme;
   function renderHeader() {
     const M = SD.M;
     const name = (M.cfg.athlete || (M.raw.profile && M.raw.profile.firstName) || '').trim();
@@ -85,7 +110,7 @@
           <button type="button" class="link" id="f-reset">Réinitialiser</button>
         </div>
       </div>
-      <div class="frow" style="margin-top:8px"><span class="fsummary"><b>${nf(F.days.length, 0)}</b> jours · ${esc(fdM(S.from))} → ${esc(fdM(S.to))}${S.wds.length < 7 ? ` · ${S.wds.map((i) => WD[i]).join(', ')}` : ''}${S.dayKind !== 'all' ? ` · ${S.dayKind === 'train' ? 'jours de muscu' : 'jours sans muscu'}` : ''}${S.types ? ` · ${esc(S.types.join(', '))}` : ''} · ${F.hasPrev ? `comparé au ${esc(fdM(F.pFrom))} → ${esc(fdM(F.pTo))}` : 'pas de période précédente comparable'} · Maj + molette sur un graphique pour zoomer</span></div>`;
+      <div class="frow" style="margin-top:8px"><span class="fsummary"><b>${nf(F.days.length, 0)}</b> jours · ${esc(fdM(S.from))} → ${esc(fdM(S.to))}${S.wds.length < 7 ? ` · ${S.wds.map((i) => WD[i]).join(', ')}` : ''}${S.dayKind !== 'all' ? ` · ${S.dayKind === 'train' ? 'jours de muscu' : 'jours sans muscu'}` : ''}${S.types ? ` · ${esc(S.types.join(', '))}` : ''} · ${F.hasPrev ? `comparé au ${esc(fdM(F.pFrom))} → ${esc(fdM(F.pTo))}` : 'pas de période précédente comparable'}<span class="desk-only"> · Maj + molette sur un graphique pour zoomer</span></span></div>`;
   }
   function bindFilters() {
     const fb = $('#filters');
@@ -144,12 +169,12 @@
       series: [{ type: 'line', data, showSymbol: false, lineStyle: { opacity: 0 }, silent: true }],
       dataZoom: [{
         type: 'slider', xAxisIndex: 0, filterMode: 'none', top: 4, bottom: 18, left: pad, right: pad, startValue: tms(S.from), endValue: tms(S.to),
-        showDataShadow: true, brushSelect: false, realtime: false, backgroundColor: T.card, borderColor: T.line, borderRadius: 8,
-        fillerColor: 'rgba(46,155,255,0.16)',
-        dataBackground: { lineStyle: { color: T.axis, width: 1 }, areaStyle: { color: T.card2, opacity: 1 } },
-        selectedDataBackground: { lineStyle: { color: T.strain, width: 1 }, areaStyle: { color: T.strain, opacity: 0.3 } },
-        handleIcon: 'path://M-3,-12h6v24h-6z', handleSize: '90%', handleStyle: { color: T.ink, borderColor: T.ink },
-        moveHandleSize: 6, moveHandleStyle: { color: T.axis, opacity: 0.7 },
+        showDataShadow: true, brushSelect: false, realtime: false, backgroundColor: T.card2, borderColor: 'transparent', borderRadius: 10,
+        fillerColor: T.accentWash,
+        dataBackground: { lineStyle: { color: T.axis, width: 1 }, areaStyle: { color: T.card3, opacity: 1 } },
+        selectedDataBackground: { lineStyle: { color: T.accent, width: 1 }, areaStyle: { color: T.accent, opacity: 0.22 } },
+        handleIcon: 'path://M-3,-12a3,3 0 0 1 6,0v24a3,3 0 0 1 -6,0z', handleSize: '86%', handleStyle: { color: T.card, borderColor: T.accent, borderWidth: 2 },
+        moveHandleSize: 6, moveHandleStyle: { color: T.axis, opacity: 0.7 }, emphasis: { handleStyle: { borderColor: T.accentInk }, moveHandleStyle: { color: T.accent } },
         textStyle: { color: T.ink2, fontSize: 11, fontFamily: SD.FONT }, labelFormatter: (v) => fdS(dstr(v)) + ' ' + dstr(v).slice(2, 4),
       }],
     }, true);
@@ -172,15 +197,18 @@
   }
 
   // ================================================================ rendu
-  function showPage(id) {
+  function showPage(id, opts) {
+    opts = opts || {};
     if (!SD.PAGES[id]) id = 'today';
+    const y = window.scrollY;
     S.page = id;
+    openSheet(false);
     $('#view').innerHTML = `<div class="page" id="page-${id}">${SD.PAGES[id].html()}</div>`;
     SD.disposeDetached();
     renderNav();
     renderHeader();
     refresh();
-    window.scrollTo({ top: 0 });
+    window.scrollTo({ top: opts.keepScroll ? y : 0 });
     const tlWas = $('#timeline');
     if (tlWas && tl) setTimeout(() => tl.resize(), 0);
   }
@@ -192,6 +220,7 @@
     if (!opts.fromTimeline) syncTimeline();
     SD.segSync();
     try { SD.PAGES[S.page].update(); } catch (e) { console.error(e); }
+    SD.ui.clampSubs($('#view'));
     SD.saveState();
   }
   SD.refresh = refresh;
@@ -215,9 +244,15 @@
         const ch = card.querySelector('.chart'), tv = card.querySelector('.tbl-view');
         const on = tb.getAttribute('aria-pressed') !== 'true';
         tb.setAttribute('aria-pressed', String(on));
-        tb.textContent = on ? 'Graphique' : 'Tableau';
+        tb.innerHTML = `${SD.icon(on ? 'overview' : 'table')}<span>${on ? 'Graphique' : 'Tableau'}</span>`;
         ch.hidden = on; tv.hidden = !on;
         if (on) SD.renderTable(tb.dataset.tbl); else { const c = SD.charts.get(tb.dataset.tbl); c && c.resize(); }
+        return;
+      }
+      const more = e.target.closest('.sub-more');
+      if (more) {
+        const sub = more.previousElementSibling;
+        if (sub) { sub.classList.toggle('open'); SD.ui.clampSubs(more.closest('.card-h')); }
         return;
       }
       const row = e.target.closest('tr[data-day]');
@@ -237,9 +272,16 @@
         t._tm = setTimeout(refresh, 180);
       }
     });
-    const nav = (e) => { const b = e.target.closest('[data-page]'); if (b) showPage(b.dataset.page); };
+    const nav = (e) => {
+      if (e.target.closest('[data-more]')) { openSheet($('#navsheet').hidden); return; }
+      const b = e.target.closest('[data-page]');
+      if (b) showPage(b.dataset.page);
+    };
     $('#nav').addEventListener('click', nav);
     $('#mnav').addEventListener('click', nav);
+    $('#navsheet').addEventListener('click', nav);
+    $('#sheet-scrim').addEventListener('click', () => openSheet(false));
+    document.addEventListener('click', (e) => { const b = e.target.closest('[data-theme-set]'); if (b) setTheme(b.dataset.themeSet); });
   }
 
   // ================================================================ détail d'un jour
@@ -258,11 +300,11 @@
     $('#drawer-body').innerHTML = `
       <p class="fsummary">${x.phase ? `Phase ${esc(x.phase)}` : ''}${x.partial ? ' · journée incomplète (jour de l’export)' : ''}</p>
       <h2 id="drawer-title">${esc(fdL(d))}</h2>
-      <div style="display:flex;gap:14px;justify-content:space-between;margin-top:14px">
-        ${SD.ring({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récup', size: 92, stroke: 9, cls: 'sm' })}
-        ${SD.ring({ value: x.strain, max: 100, color: T.strain, text: isNum(x.strain) ? nf(x.strain, 0) : null, label: 'Charge', size: 92, stroke: 9, cls: 'sm' })}
-        ${SD.ring({ value: x.sleepPerf, max: 100, color: T.sleep, unit: '%', label: 'Sommeil', size: 92, stroke: 9, cls: 'sm' })}
-        ${SD.ring({ value: ds, max: 100, color: SD.scoreColor(ds), text: isNum(ds) ? SD.scores.grade(ds) : null, label: 'Note', size: 92, stroke: 9, cls: 'sm' })}
+      <div class="drawer-rings">
+        ${SD.ring({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récup', size: 88, stroke: 10, cls: 'sm' })}
+        ${SD.ring({ value: x.strain, max: 100, color: T.strain, text: isNum(x.strain) ? nf(x.strain, 0) : null, label: 'Charge', size: 88, stroke: 10, cls: 'sm' })}
+        ${SD.ring({ value: x.sleepPerf, max: 100, color: T.sleep, unit: '%', label: 'Sommeil', size: 88, stroke: 10, cls: 'sm' })}
+        ${SD.ring({ value: ds, max: 100, color: SD.scoreColor(ds), text: isNum(ds) ? SD.scores.grade(ds) : null, label: 'Note', size: 88, stroke: 10, cls: 'sm' })}
       </div>
       ${x.alert ? `<div class="alert ${x.alert.level === 'crit' ? '' : 'warn'}" style="margin-top:14px"><b>Signal physiologique</b>${esc(x.alert.flags.join(' · '))}</div>` : ''}
       <h3>Récupération</h3><div class="dgrid">
@@ -274,7 +316,7 @@
         ${stat('Minutes d’exercice', isNum(x.exMin) ? nf(x.exMin, 0) + ' min' : '—')}${stat('Asymétrie de marche', isNum(x.walkAsym) ? nf(x.walkAsym, 1) + ' %' : '—')}
       </div>
       ${x.w.length ? `<h3>Séances</h3><ul>${x.w.map((w) => `<li><span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${typeColor(w.type)};margin-right:6px"></span>${esc(w.type)}${STRENGTH.has(w.type) && x.split ? ` · ${esc(x.split)}` : ''} — ${w.min != null ? esc(fHM(w.min)) : w.flag ? `durée ignorée (${esc(fHM(w.rawMin))}, chrono oublié ?)` : 'durée inconnue'}</li>`).join('')}</ul>` : ''}
-      ${ex.length ? `<h3>Exercices (${ex.length})</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>Exercice</th><th class="num">Séries</th><th class="num">Reps</th><th class="num">Max</th><th class="num">e1RM</th></tr></thead><tbody>${ex.map((e) => `<tr><td style="white-space:normal">${esc(e.n)}${e.pr ? ' <b style="color:var(--good)">PR</b>' : ''}</td><td class="num">${nf(e.sets, 0)}</td><td class="num">${nf(e.reps, 0)}</td><td class="num">${nf(e.hw, 1)}</td><td class="num">${nf(e.e1, 1)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+      ${ex.length ? `<h3>Exercices (${ex.length})</h3><div class="tbl-wrap"><table class="t"><thead><tr><th>Exercice</th><th class="num">Séries</th><th class="num">Reps</th><th class="num">Max</th><th class="num">e1RM</th></tr></thead><tbody>${ex.map((e) => `<tr><td style="white-space:normal">${esc(e.n)}${e.pr ? ' <b style="color:var(--good-ink)">PR</b>' : ''}</td><td class="num">${nf(e.sets, 0)}</td><td class="num">${nf(e.reps, 0)}</td><td class="num">${nf(e.hw, 1)}</td><td class="num">${nf(e.e1, 1)}</td></tr>`).join('')}</tbody></table></div>` : ''}
       <h3>Corps & nutrition</h3><div class="dgrid">
         ${stat('Pesée', isNum(x.weight) ? nf(x.weight, 2) + ' kg' : '—')}${stat('Poids tendance', isNum(x.trendW) ? nf(x.trendW, 2) + ' kg' : '—')}
         ${stat('Calories', isNum(x.kcal) ? `${nf(x.kcal, 0)}${tg ? ' / ' + nf(tg.kcal, 0) : ''} kcal` : '—')}${stat('Protéines', isNum(x.prot) ? `${nf(x.prot, 0)}${tg ? ' / ' + nf(tg.prot, 0) : ''} g` : '—')}
@@ -419,7 +461,7 @@
 
   SD.onJournal = () => {
     if (!SD.M) return;
-    if (['today', 'journal'].includes(S.page)) { try { SD.compute(); SD.PAGES[S.page].update(); } catch (e) { console.error(e); } }
+    if (['today', 'journal'].includes(S.page)) { try { SD.compute(); SD.PAGES[S.page].update(); SD.ui.clampSubs($('#view')); } catch (e) { console.error(e); } }
   };
 
   async function init() {
@@ -435,9 +477,22 @@
       const o = e.target.closest('[data-open-day]');
       if (o) { closeDay(); SD.setDay(o.dataset.openDay); showPage('today'); }
     });
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#drawer').hidden) closeDay(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (!$('#drawer').hidden) closeDay();
+      else if (!$('#navsheet').hidden) openSheet(false);
+    });
     let rt;
-    window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { SD.resizeAll(); if (tl) tl.resize(); if (SD.M && S.page === 'overview') SD.PAGES.overview.update(); }, 200); });
+    window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => { SD.resizeAll(); if (tl) tl.resize(); if (SD.M && S.page === 'overview') SD.PAGES.overview.update(); SD.ui.clampSubs($('#view')); }, 200); });
+    // le thème « automatique » suit le système : on redessine les graphiques quand il change
+    const mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    if (mq && mq.addEventListener) mq.addEventListener('change', () => { if (themeMode() === 'auto') repaint(); });
+    // dans claude.ai, l'hôte peut poser data-theme sur <html> (thème choisi dans claude.ai) : on suit s'il change le rendu
+    if (window.MutationObserver) {
+      new MutationObserver(() => { if (SD.M && SD.T && /dark/.test(getComputedStyle(document.documentElement).colorScheme || '') !== !!SD.T.dark) repaint(); })
+        .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    }
+    renderThemeSwitch();
 
     const embedded = window.SD_DATA || null;
     const local = await loadLocal();

@@ -3,19 +3,19 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fdM, esc, tms, mean, chart, base, tipBox, axisTip, xCat, yVal, line } = SD;
-  const { card, setHTML, setText } = SD.ui;
+  const { card, hic, setHTML, setText } = SD.ui;
   let shown = 40;
 
   const journal = {
     id: 'journal', title: 'Journal', sub: 'Une note par jour, des #tags, ton ressenti si tu veux : le dashboard mesure ensuite l’effet de tes habitudes sur ta récupération.',
     html() {
-      return `<section class="card c5"><div class="card-h"><div><h2>Entrée du jour</h2><p class="sub" id="jr-sub"></p></div>
+      return `<section class="card c5"><div class="card-h"><div><h2>${hic('journal', 'age')}Entrée du jour</h2><p class="sub" id="jr-sub"></p></div>
           <div class="card-tools"><button type="button" class="btn icon-btn" data-dayshift="-1" aria-label="Jour précédent">‹</button><input type="date" class="field" id="jr-pick" aria-label="Jour"><button type="button" class="btn icon-btn" data-dayshift="1" aria-label="Jour suivant">›</button></div></div><div id="jr-form"></div></section>
-        <section class="card c7"><div class="card-h"><div><h2>Fil du journal</h2><p class="sub" id="jr-list-s"></p></div></div><div class="entries" id="jr-list"></div><button type="button" class="link" id="jr-more" hidden>Afficher plus</button></section>
-        ${card('c7', 'jr-imp', 'Impact des habitudes sur la récupération du lendemain', 'Écart de récupération le lendemain avec ou sans l’habitude, corrigé de ta récupération du jour même · ● = écart net (|t| ≥ 2,5, n ≥ 8) · une association, pas une preuve de cause', '', { h: 'tall' })}
-        ${card('c5', 'jr-mood', 'Ressenti', 'Échelles de 1 à 5 saisies dans le journal')}
-        ${card('c6', 'jr-pain', 'Douleurs', 'Échelle de 0 à 10 par zone')}
-        ${card('c6', 'jr-coach', 'Scores du coach vs note du jour', 'Rapports du journal coach (Préparation, Momentum, Global) et note du jour du dashboard')}`;
+        <section class="card c7"><div class="card-h"><div><h2>${hic('list', 'age')}Fil du journal</h2><p class="sub" id="jr-list-s"></p></div></div><div class="entries" id="jr-list"></div><button type="button" class="link" id="jr-more" hidden>Afficher plus</button></section>
+        ${card('c7', 'jr-imp', 'Impact des habitudes sur la récupération du lendemain', 'Écart de récupération le lendemain avec ou sans l’habitude, corrigé de ta récupération du jour même · ● = écart net (|t| ≥ 2,5, n ≥ 8) · une association, pas une preuve de cause', '', { icon: 'trend', tone: 'age', h: 'tall' })}
+        ${card('c5', 'jr-mood', 'Ressenti', 'Échelles de 1 à 5 saisies dans le journal', '', { icon: 'sun', tone: 'age' })}
+        ${card('c6', 'jr-pain', 'Douleurs', 'Échelle de 0 à 10 par zone', '', { icon: 'alert', tone: 'body' })}
+        ${card('c6', 'jr-coach', 'Scores du coach vs note du jour', 'Rapports du journal coach (Préparation, Momentum, Global) et note du jour du dashboard', '', { icon: 'chat', tone: 'age' })}`;
     },
     update() {
       const { M, F, S, T } = SD;
@@ -45,7 +45,7 @@
         const co = M.coach.get(x.d);
         if (co) lines.push(`<p><span class="src">Coach</span>${co.scores && isNum(co.scores.global) ? `<b>Global ${nf(co.scores.global, 0)}</b> · ` : ''}${esc(co.verdict || '')}</p>`);
         if (isNum(x.mood)) lines.push(`<p><span class="src">Apple</span>Humeur ${esc(J.moodLabel(x.mood))}</p>`);
-        return `<div class="entry" data-day="${x.d}" style="cursor:pointer"><div class="mini"><b style="color:${SD.recColor(x.rec)}">${isNum(x.rec) ? nf(x.rec, 0) : '—'}</b><span>récup</span><b style="color:${T.strain}">${isNum(x.strain) ? nf(x.strain, 0) : '—'}</b><span>charge</span></div>
+        return `<div class="entry" data-day="${x.d}" style="cursor:pointer"><div class="mini"><b>${isNum(x.rec) ? nf(x.rec, 0) : '—'}</b><span><i class="dotc" style="background:${SD.recColor(x.rec)}"></i>récup</span><b>${isNum(x.strain) ? nf(x.strain, 0) : '—'}</b><span><i class="dotc" style="background:${T.strain}"></i>charge</span></div>
           <div><h3>${esc(SD.fdate(x.d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))}</h3>${lines.join('')}</div></div>`;
       }).join('') || '<div class="empty">Aucune entrée sur la période. Remplis l’entrée du jour à gauche : chaque note enrichit l’analyse d’impact.</div>');
       document.querySelectorAll('#jr-list .entry').forEach((el) => { el.onclick = () => { SD.setDay(el.dataset.day); SD.refresh(); document.getElementById('jr-form').scrollIntoView({ behavior: 'smooth', block: 'start' }); }; });
@@ -69,7 +69,7 @@
 
       // ---- ressenti
       const ent = [...J.days()].filter((d) => d >= S.from && d <= S.to).sort().map((d) => J.combined(d));
-      const colors = [T.sleep, T.nutri, T.crit, T.act];
+      const colors = [T.s[0], T.s[1], T.s[2], T.s[3]];
       const moodSeries = J.SCALES.map(([k, l], i) => line(l, ent.filter((e) => isNum(e[k])).map((e) => [tms(e.d), e[k]]), colors[i], { showSymbol: true, symbolSize: 6 })).filter((s) => s.data.length);
       chart('jr-mood', moodSeries.length ? base({
         grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },
@@ -80,7 +80,7 @@
       }) : base(SD.emptyOpt('Pas encore d’entrée de ressenti sur la période')), () => ({ cols: ['Date', ...J.SCALES.map((s) => s[1])], rows: ent.map((e) => [fdM(e.d), ...J.SCALES.map(([k]) => (isNum(e[k]) ? e[k] : '—'))]) }));
 
       const sites = J.painSites();
-      const painSeries = sites.map((p, i) => line(p, ent.filter((e) => e.pain && isNum(e.pain[p])).map((e) => [tms(e.d), e.pain[p]]), [T.crit, T.warn, T.body, T.nutri][i % 4], { showSymbol: true, symbolSize: 6 })).filter((s) => s.data.length);
+      const painSeries = sites.map((p, i) => line(p, ent.filter((e) => e.pain && isNum(e.pain[p])).map((e) => [tms(e.d), e.pain[p]]), T.s[i % 8], { showSymbol: true, symbolSize: 6 })).filter((s) => s.data.length);
       chart('jr-pain', painSeries.length ? base({
         grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },
         legend: SD.ui.ecLegend(T, painSeries.map((s) => s.name)),
@@ -91,7 +91,7 @@
 
       // ---- coach vs note du jour
       const co = (M.raw.coach || []).filter((c) => c.d >= S.from && c.d <= S.to && c.scores);
-      const cs = [['preparation', 'Préparation', T.rec], ['momentum', 'Momentum', T.nutri], ['global', 'Global coach', T.age]].map(([k, l, c]) => line(l, co.filter((q) => isNum(q.scores[k])).map((q) => [tms(q.d), q.scores[k]]), c, { showSymbol: true, symbolSize: 7 })).filter((s) => s.data.length);
+      const cs = [['preparation', 'Préparation', T.s[0]], ['momentum', 'Momentum', T.s[1]], ['global', 'Global coach', T.s[2]]].map(([k, l, c]) => line(l, co.filter((q) => isNum(q.scores[k])).map((q) => [tms(q.d), q.scores[k]]), c, { showSymbol: true, symbolSize: 7 })).filter((s) => s.data.length);
       const mine = F.full.filter((x) => isNum(SD.scores.dayScore(x)) && (!co.length || x.d >= co[0].d)).map((x) => [tms(x.d), Math.round(SD.scores.dayScore(x))]);
       chart('jr-coach', cs.length ? base({
         grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },

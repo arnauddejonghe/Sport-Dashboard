@@ -305,12 +305,14 @@
 
   // ================================================================ scores de période
   // Poids égaux ; la récupération (état physiologique) est affichée mais n'entre pas dans la note globale
+  // ordre d'affichage : récupération et sommeil, puis le mouvement, puis la composition
+  // (c'est aussi l'ordre dans lequel les couleurs voisines restent distinctes pour les daltoniens)
   const PILLARS = [
     { key: 'recovery', label: 'Récupération', w: 0, color: 'rec', state: true },
     { key: 'sleep', label: 'Sommeil', w: 20, color: 'sleep' },
     { key: 'training', label: 'Entraînement', w: 20, color: 'strain' },
-    { key: 'nutrition', label: 'Nutrition', w: 20, color: 'nutri' },
     { key: 'activity', label: 'Activité', w: 20, color: 'act' },
+    { key: 'nutrition', label: 'Nutrition', w: 20, color: 'nutri' },
     { key: 'body', label: 'Corps', w: 20, color: 'body' },
   ];
   const grade = (v) => (!isNum(v) ? '—' : v >= 90 ? 'A+' : v >= 80 ? 'A' : v >= 70 ? 'B' : v >= 60 ? 'C' : v >= 50 ? 'D' : 'E');

@@ -42,19 +42,19 @@
     id: 'strength', title: 'Force', sub: 'Progression de tes exercices, records, force relative et volume par groupe musculaire.',
     html() {
       const S = SD.S;
-      return `${card('c12', 'st-mult', 'Exercices clés', 'e1RM estimé sur la période · clic pour afficher la progression', '', { table: false, body: '<div class="multiples" id="st-mult-b"></div>' })}
-        ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { h: 'tall' })}
-        <section class="card c4"><div class="card-h"><div><h2 id="st-card-t">Fiche exercice</h2><p class="sub" id="st-card-s"></p></div></div><div id="st-card-b"></div></section>
-        ${card('c4', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire')}
-        ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés', '<button type="button" class="btn sm" id="st-keyedit">Exercices clés</button>')}
-        <section class="card c12" id="st-keypanel" hidden><div class="card-h"><div><h2>Choisir les exercices clés</h2><p class="sub">Utilisés pour les exercices clés, la force relative et l’indice de force. Enregistré dans ce navigateur.</p></div>
+      return `${card('c12', 'st-mult', 'Exercices clés', 'e1RM estimé sur la période · clic pour afficher la progression', '', { icon: 'trophy', tone: 'strain', table: false, body: '<div class="multiples" id="st-mult-b"></div>' })}
+        ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { icon: 'trend', tone: 'strain', h: 'tall' })}
+        <section class="card c4"><div class="card-h"><div><h2>${SD.ui.hic('dumbbell', 'strain')}<span id="st-card-t">Fiche exercice</span></h2><p class="sub" id="st-card-s"></p></div></div><div id="st-card-b"></div></section>
+        ${card('c4', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire', '', { icon: 'gauge', tone: 'strain' })}
+        ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés', '<button type="button" class="btn sm" id="st-keyedit">Exercices clés</button>', { icon: 'scale', tone: 'body' })}
+        <section class="card c12" id="st-keypanel" hidden><div class="card-h"><div><h2>${SD.ui.hic('list', 'accent')}Choisir les exercices clés</h2><p class="sub">Utilisés pour les exercices clés, la force relative et l’indice de force. Enregistré dans ce navigateur.</p></div>
           <div class="card-tools"><button type="button" class="link" id="st-keyreset">Revenir à la configuration</button><button type="button" class="btn" id="st-keydone">Terminé</button></div></div><div class="keygrid" id="st-keylist"></div><p class="note" id="st-keypanel-n"></p></section>
-        ${card('c4', 'st-pr', 'Records personnels', 'Records (e1RM au-dessus de tout l’historique de l’exercice) par mois')}
-        ${card('c6', 'st-mus', 'Volume par muscle', '', seg('musCount', [['frac', 'Fractionné'], ['full', 'Plein']], S.musCount || 'frac'), { h: 'tall' })}
-        ${card('c6', 'st-musw', 'Évolution par semaine', '', `<select class="fselect" id="st-mus-sel" data-state="musSel" aria-label="Muscle"></select>`, { h: 'tall' })}
-        ${card('c12', 'st-must', 'Détail par muscle', 'Moyennes par semaine sur la période · effectives = directes + apport indirect · fréquence = jours par semaine où le muscle est travaillé en direct', '', { table: false, body: '<div class="tbl-wrap" id="st-must-b"></div>' })}
-        ${card('c12', 'st-heat', 'Carte de chaleur des muscles', 'Séries effectives par semaine et par groupe musculaire')}
-        ${card('c12', 'st-tbl', 'Tous les exercices', 'Clic sur une ligne pour afficher la progression · clic sur un en-tête pour trier', '', { table: false, body: '<div class="tbl-wrap tbl-scroll" id="st-tbl-b"></div>' })}`;
+        ${card('c4', 'st-pr', 'Records personnels', 'Records (e1RM au-dessus de tout l’historique de l’exercice) par mois', '', { icon: 'trophy', tone: 'accent' })}
+        ${card('c6', 'st-mus', 'Volume par muscle', '', seg('musCount', [['frac', 'Fractionné'], ['full', 'Plein']], S.musCount || 'frac'), { icon: 'muscle', tone: 'strain', h: 'tall' })}
+        ${card('c6', 'st-musw', 'Évolution par semaine', '', `<select class="fselect" id="st-mus-sel" data-state="musSel" aria-label="Muscle"></select>`, { icon: 'calendar', tone: 'strain', h: 'tall' })}
+        ${card('c12', 'st-must', 'Détail par muscle', 'Moyennes par semaine sur la période · effectives = directes + apport indirect · fréquence = jours par semaine où le muscle est travaillé en direct', '', { icon: 'table', tone: 'strain', table: false, body: '<div class="tbl-wrap" id="st-must-b"></div>' })}
+        ${card('c12', 'st-heat', 'Carte de chaleur des muscles', 'Séries effectives par semaine et par groupe musculaire', '', { icon: 'overview', tone: 'strain' })}
+        ${card('c12', 'st-tbl', 'Tous les exercices', 'Clic sur une ligne pour afficher la progression · clic sur un en-tête pour trier', '', { icon: 'list', tone: 'accent', table: false, body: '<div class="tbl-wrap tbl-scroll" id="st-tbl-b"></div>' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
@@ -82,8 +82,8 @@
       const series = [];
       const legend = [ml];
       if (pts.length) {
-        series.push(line(ml, pts.map((e) => [tms(e.d), e[mk]]), T.strain, { showSymbol: true, symbolSize: 8, lineStyle: { width: 2, color: T.strain },
-          markPoint: mk === 'e1' ? { symbol: 'pin', symbolSize: 32, itemStyle: { color: T.good }, label: { color: '#0a0d11', fontSize: 9.5, fontWeight: 700, formatter: 'PR' }, data: pts.filter((e) => e.pr).map((e) => ({ coord: [tms(e.d), e[mk]], value: e[mk] })) } : undefined }));
+        series.push(line(ml, pts.map((e) => [tms(e.d), e[mk]]), T.strain, { showSymbol: true, symbolSize: 8, lineStyle: { width: 2, color: T.strain }, areaStyle: { color: T.strain, opacity: 0.08 },
+          markPoint: mk === 'e1' ? { symbol: 'pin', symbolSize: 32, itemStyle: { color: T.good }, label: { color: T.onStatus, fontSize: 9.5, fontWeight: 700, formatter: 'PR' }, data: pts.filter((e) => e.pr).map((e) => ({ coord: [tms(e.d), e[mk]], value: e[mk] })) } : undefined }));
         if (A.ma7 && pts.length >= 3) {
           series.push(line('Moyenne 3 séances', pts.map((e, i) => [tms(e.d), mean(pts.slice(Math.max(0, i - 2), i + 1).map((q) => q[mk]))]), T.ink2, { lineStyle: { width: 1.5, color: T.ink2 } }));
           legend.push('Moyenne 3 séances');
@@ -137,9 +137,9 @@
           <div class="dstat"><div class="l">Volume / séance</div><div class="v">${nf(mean(pluck(rows, (e) => e.vol)), 0)} kg</div><div class="l">moyenne</div></div>
           ${pluck(rows, (e) => e.rir).length ? `<div class="dstat"><div class="l">RIR moyen</div><div class="v">${nf(mean(pluck(rows, (e) => e.rir)), 1)}</div><div class="l">répétitions en réserve</div></div><div class="dstat"><div class="l">Séries à l’échec</div><div class="v">${nf(SD.sum(pluck(rows, (e) => e.fail)), 0)}</div><div class="l">RIR 0 (exports récents)</div></div>` : ''}
         </div>
-        <h3 style="margin:16px 0 6px;font:700 12.5px/1 var(--font-c);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Derniers records (${allPr.length})</h3>
-        ${allPr.length ? `<div>${allPr.map((e) => `<div class="statline"><span>${esc(fdM(e.d))}</span><b style="color:var(--good)">${nf(e.e1, 1)} kg</b></div>`).join('')}</div>` : '<p class="note">Pas encore de record enregistré.</p>'}
-        <h3 style="margin:16px 0 6px;font:700 12.5px/1 var(--font-c);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)">Notes de séance (${notes.length})</h3>
+        <h3 style="margin:18px 0 6px;font:600 13px/1 var(--font);color:var(--muted)">Derniers records (${allPr.length})</h3>
+        ${allPr.length ? `<div>${allPr.map((e) => `<div class="statline"><span>${esc(fdM(e.d))}</span><b style="color:var(--good-ink)">${nf(e.e1, 1)} kg</b></div>`).join('')}</div>` : '<p class="note">Pas encore de record enregistré.</p>'}
+        <h3 style="margin:18px 0 6px;font:600 13px/1 var(--font);color:var(--muted)">Notes de séance (${notes.length})</h3>
         ${notes.length ? `<ul style="margin:0;padding-left:18px;font-size:13px;color:var(--ink-2);max-height:180px;overflow:auto">${notes.slice().reverse().map((nn) => `<li><b>${esc(fdS(nn.d))}</b> · ${esc(nn.text)}</li>`).join('')}</ul>` : '<p class="note">Aucune note pour cet exercice.</p>'}` : '<div class="empty">Sélectionne un exercice.</div>');
 
       // ---- indice de force
@@ -191,7 +191,7 @@
       }
       const mus = agg.rows.filter((q) => q.eff >= 0.1).map((q) => Object.assign({}, q, full ? { indirect: q.indirect * 2, eff: q.direct + q.indirect * 2 } : {}, { plan: planW[q.m] || null }));
       const status = (q) => (q.eff < lo ? ['warn', 'Sous la cible'] : q.eff > hi ? ['ok', 'Au-dessus'] : ['good', 'Dans la cible']);
-      const IND = 'rgba(46,155,255,0.38)';
+      const IND = T.ind;
       setText('st-mus-s', `Séries par semaine sur la période · foncé = séries directes (muscle moteur), clair = apport indirect (${full ? '1 série par muscle qui assiste, comme la plupart des apps' : '½ série quand le muscle assiste, comme MacroFactor et la méta-analyse de Pelland et al. 2024'}) · ◆ = prévu par ton programme actuel · bande = cible ${lo}–${hi}${full ? ' (définie en comptage fractionné)' : ''}`);
       const musEl = document.getElementById('st-mus');
       if (musEl) musEl.style.height = Math.max(280, mus.length * 24 + 50) + 'px';
@@ -206,7 +206,7 @@
         yAxis: xCat(mus.map((q) => q.m), { inverse: true, axisLine: { show: false }, axisLabel: { color: T.ink2, fontSize: 12 } }),
         series: [
           { name: 'Directes', type: 'bar', stack: 'v', barMaxWidth: 14, itemStyle: { color: T.strain }, data: mus.map((q) => ({ value: +q.direct.toFixed(1), itemStyle: { color: T.strain } })),
-            markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.07)' }, label: { show: true, position: 'insideTop', color: T.muted, fontSize: 10.5, formatter: `cible ${lo}–${hi}` }, data: [[{ xAxis: lo }, { xAxis: hi }]] } },
+            markArea: { silent: true, itemStyle: { color: T.wash.good }, label: { show: true, position: 'insideTop', color: T.muted, fontSize: 10.5, formatter: `cible ${lo}–${hi}` }, data: [[{ xAxis: lo }, { xAxis: hi }]] } },
           { name: 'Apport indirect', type: 'bar', stack: 'v', barMaxWidth: 14, itemStyle: { color: IND }, data: mus.map((q) => ({ value: +q.indirect.toFixed(1), itemStyle: { color: IND, borderRadius: [0, 4, 4, 0] } })),
             label: { show: true, position: 'right', color: T.ink2, fontSize: 11, formatter: (p) => nf(mus[p.dataIndex].eff, 1) } },
           { name: 'Prévu (programme)', type: 'scatter', symbol: 'diamond', symbolSize: 10, itemStyle: { color: T.ink }, z: 5, data: mus.map((q) => (isNum(q.plan) ? q.plan : null)) },
@@ -253,7 +253,7 @@
           { color: T.ink, value: nf(q.direct + q.indirect, 1), name: 'effectives' }, { color: T.muted, value: nf(q.tonD + q.tonI, 0) + ' kg', name: 'tonnage' }]); } }),
         xAxis: xCat(wkeys.map((w) => fdS(w))), yAxis: yVal({ name: 'séries' }),
         series: [
-          SD.bar('Directes', wkeys.map((w) => (wOf(w) ? +wOf(w).direct.toFixed(1) : 0)), T.strain, { stack: 'w', markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.07)' }, data: [[{ yAxis: lo }, { yAxis: hi }]] } }),
+          SD.bar('Directes', wkeys.map((w) => (wOf(w) ? +wOf(w).direct.toFixed(1) : 0)), T.strain, { stack: 'w', markArea: { silent: true, itemStyle: { color: T.wash.good }, data: [[{ yAxis: lo }, { yAxis: hi }]] } }),
           SD.bar('Apport indirect', wkeys.map((w) => (wOf(w) ? +wOf(w).indirect.toFixed(1) : 0)), IND, { stack: 'w', itemStyle: { color: IND, borderRadius: [3, 3, 0, 0] } }),
         ],
       }) : base(SD.emptyOpt('Aucun muscle travaillé sur la période')), () => ({ cols: ['Semaine', 'Directes', 'Apport indirect', 'Tonnage (kg)'], rows: wkeys.map((w) => { const q = wOf(w) || { direct: 0, indirect: 0, tonD: 0, tonI: 0 }; return [fdM(w), nf(q.direct, 1), nf(q.indirect, 1), nf(q.tonD + q.tonI, 0)]; }) }));

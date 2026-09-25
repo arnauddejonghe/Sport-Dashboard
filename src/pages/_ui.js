@@ -8,15 +8,29 @@
   const seg = (key, opts, cur) =>
     `<div class="seg" data-state="${key}" role="group">${opts.map(([v, l]) => `<button type="button" data-v="${esc(v)}" aria-pressed="${String(cur) === String(v)}">${esc(l)}</button>`).join('')}</div>`;
 
+  /** Icône teintée d'en-tête de carte (tone = token CSS : rec, sleep, strain, nutri, act, body, age, hydro, accent…) */
+  const hic = (name, tone) => `<span class="hic" style="--tc:var(--${tone || 'accent'})">${SD.icon(name)}</span>`;
   function card(cls, id, title, sub, tools, opts) {
     opts = opts || {};
-    const tbl = opts.table === false ? '' : `<button type="button" class="tbl-toggle" data-tbl="${id}" aria-pressed="false">Tableau</button>`;
+    const tbl = opts.table === false ? '' : `<button type="button" class="tbl-toggle" data-tbl="${id}" aria-pressed="false">${SD.icon('table')}<span>Tableau</span></button>`;
     const body = opts.body != null ? opts.body : `<div class="chart ${opts.h || ''}" id="${id}"></div><div class="tbl-view" hidden></div>`;
-    return `<section class="card ${cls}"><div class="card-h"><div><h2 id="${id}-t">${title}</h2>${sub != null ? `<p class="sub" id="${id}-s">${sub}</p>` : ''}</div>`
+    return `<section class="card ${cls}"><div class="card-h"><div><h2>${opts.icon ? hic(opts.icon, opts.tone) : ''}<span id="${id}-t">${title}</span></h2>${sub != null ? `<p class="sub" id="${id}-s">${sub}</p>` : ''}</div>`
       + `<div class="card-tools" id="${id}-tools">${tools || ''}${tbl}</div></div>${body}${opts.note ? `<p class="note" id="${id}-n">${opts.note}</p>` : ''}</section>`;
   }
   const setText = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
   const setHTML = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html; };
+  /** Sous-titres de carte limités à 2 lignes : bouton « Détails » quand le texte dépasse (la méthode reste à un clic) */
+  function clampSubs(root) {
+    (root || document).querySelectorAll('.card-h .sub').forEach((el) => {
+      let btn = el.nextElementSibling && el.nextElementSibling.classList.contains('sub-more') ? el.nextElementSibling : null;
+      const open = el.classList.contains('open');
+      const over = open || el.scrollHeight > el.clientHeight + 2;
+      if (!over) { if (btn) btn.remove(); return; }
+      if (!btn) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'sub-more'; el.after(btn); }
+      btn.setAttribute('aria-expanded', String(open));
+      btn.textContent = open ? 'Réduire' : 'Détails';
+    });
+  }
   const segSync = () => {
     document.querySelectorAll('.card .seg[data-state]').forEach((g) => {
       const cur = String(SD.S[g.dataset.state]);
@@ -136,7 +150,7 @@
     if (!el) return;
     const [lab, get, fm, how, tone] = CAL[S.calMetric] || CAL.score;
     const val = (x) => (x.partial ? null : get(x));
-    const scale = tone === 'rec' || tone === 'score' ? [T.crit, T.warn, T.good] : tone === 'sleep' ? ['#1e2240', '#4a51a8', T.sleep, '#c9ccff'] : tone === 'act' ? ['#0f2a28', '#1b6f66', T.act, '#9ff0e6'] : [T.seq[1], T.seq[2], T.seq[3], T.seq[4], T.seq[5]];
+    const scale = tone === 'rec' || tone === 'score' ? T.heat : tone === 'sleep' ? T.seqSleep : tone === 'act' ? T.seqAct : [T.seq[1], T.seq[2], T.seq[3], T.seq[4], T.seq[5]];
     if (F.len <= 400) {
       const weeks = Math.ceil((F.len + 7) / 7);
       const cs = Math.max(10, Math.min(26, Math.floor(((el.clientWidth || 900) - 50) / weeks)));
@@ -205,8 +219,8 @@
       grid: [{ left: 44, right: 16, top: 26, height: '38%' }, { left: 44, right: 16, top: '60%', bottom: 26 }],
       tooltip: Object.assign(base().tooltip, { formatter: (ps) => { const v = ps && ps[0] && ps[0].value; return v ? SD.ui.dayTip(dstr(v[0]), 'Récupération (haut) et charge (bas) alignées') : ''; } }),
       title: [
-        { text: 'RÉCUPÉRATION', left: 44, top: 4, textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C, fontWeight: 700 } },
-        { text: 'CHARGE (0–100)', left: 44, top: '53%', textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C, fontWeight: 700 } },
+        { text: 'Récupération (%)', left: 44, top: 2, textStyle: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT, fontWeight: 600 } },
+        { text: 'Charge (0–100)', left: 44, top: '52%', textStyle: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT, fontWeight: 600 } },
       ],
       toolbox: SD.toolbox(),
       dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }],
@@ -220,7 +234,7 @@
     c && c.on('click', (p) => p.value && SD.openDay(dstr(p.value[0])));
   }
 
-  SD.ui = { seg, card, setText, setHTML, segSync, ecLegend, drill, unitWeek, avgOf, prevDelta, dayTip, weightChart, typesChart, calendar, recStrainChart };
+  SD.ui = { seg, hic, card, setText, setHTML, clampSubs, segSync, ecLegend, drill, unitWeek, avgOf, prevDelta, dayTip, weightChart, typesChart, calendar, recStrainChart };
   SD.PAGES = {};
   SD.segSync = segSync;
 })();

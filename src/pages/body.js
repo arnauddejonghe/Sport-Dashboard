@@ -22,14 +22,14 @@
       const S = SD.S;
       const pk = SD.partialKcal();
       return `<div class="kpis" id="bd-k"></div>
-        ${card('c6', 'bd-kcal', 'Énergie', '', `<label class="fsummary" for="bd-pk">Log partiel &lt; <b id="bd-pk-v">${nf(pk, 0)}</b> kcal</label><input type="range" id="bd-pk" min="0" max="2200" step="100" value="${pk}" style="width:110px;accent-color:var(--nutri)" aria-label="Seuil de journée partielle">`)}
-        ${card('c6', 'bd-macro', 'Macronutriments', '', seg('macroView', [['g', 'Grammes'], ['pct', '% énergie']], S.macroView))}
-        ${card('c6', 'bd-prot', 'Protéines par kilo', 'g de protéines par kg de poids tendance · bande = cible')}
-        ${card('c6', 'bd-score', 'Score nutrition', 'Par jour loggé : calories vs cible (45 %), protéines vs cible (40 %), fibres vs 30 g (15 %)')}
-        ${card('c6', 'bd-bal', 'Balance énergétique', 'Calories ingérées − dépense estimée par MacroFactor')}
-        ${card('c6', 'bd-wd', 'Écart à la cible par jour', 'Moyenne (ingéré − cible MacroFactor) par jour de semaine')}
-        ${card('c12', 'bd-micro', 'Micronutriments', 'Moyenne des jours loggés vs repères de santé publique', '', { table: false, body: '<div id="bd-micro-b" class="micro-grid"></div>' })}
-        ${card('c12', 'bd-hyd', 'Hydratation', '', '', { h: 'short' })}`;
+        ${card('c6', 'bd-kcal', 'Énergie', '', `<label class="fsummary" for="bd-pk">Log partiel &lt; <b id="bd-pk-v">${nf(pk, 0)}</b> kcal</label><input type="range" id="bd-pk" min="0" max="2200" step="100" value="${pk}" style="width:110px;accent-color:var(--nutri)" aria-label="Seuil de journée partielle">`, { icon: 'flame', tone: 'nutri' })}
+        ${card('c6', 'bd-macro', 'Macronutriments', '', seg('macroView', [['g', 'Grammes'], ['pct', '% énergie']], S.macroView), { icon: 'food', tone: 'nutri' })}
+        ${card('c6', 'bd-prot', 'Protéines par kilo', 'g de protéines par kg de poids tendance · bande = cible', '', { icon: 'target', tone: 'nutri' })}
+        ${card('c6', 'bd-score', 'Score nutrition', 'Par jour loggé : calories vs cible (45 %), protéines vs cible (40 %), fibres vs 30 g (15 %)', '', { icon: 'trophy', tone: 'nutri' })}
+        ${card('c6', 'bd-bal', 'Balance énergétique', 'Calories ingérées − dépense estimée par MacroFactor', '', { icon: 'scale', tone: 'nutri' })}
+        ${card('c6', 'bd-wd', 'Écart à la cible par jour', 'Moyenne (ingéré − cible MacroFactor) par jour de semaine', '', { icon: 'calendar', tone: 'nutri' })}
+        ${card('c12', 'bd-micro', 'Micronutriments', 'Moyenne des jours loggés vs repères de santé publique', '', { icon: 'list', tone: 'nutri', table: false, body: '<div id="bd-micro-b" class="micro-grid"></div>' })}
+        ${card('c12', 'bd-hyd', 'Hydratation', '', '', { icon: 'droplet', tone: 'hydro', h: 'short' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
@@ -43,11 +43,11 @@
       const [pLo] = cfg.proteinPerKg;
       const balD = pluck(lg, (x) => (isNum(x.tdee) ? x.kcal - x.tdee : null));
       setHTML('bd-k', [
-        kpi({ label: 'Calories', value: kc, unit: 'kcal/j', ctx: tk ? `cible moyenne ${nf(tk, 0)} kcal · ${sgn(kc - tk, 0)} kcal` : 'jours loggés', color: T.nutri }),
-        kpi({ label: 'Protéines', value: pkg.length ? mean(pkg) : null, digits: 2, unit: 'g/kg', ctx: pkg.length ? `${nf((pkg.filter((v) => v >= pLo).length / pkg.length) * 100, 0)} % des jours ≥ ${nf(pLo, 1)} g/kg` : '', color: T.s[0] }),
-        kpi({ label: 'Balance', value: balD.length ? mean(balD) : null, unit: 'kcal/j', fmt: (v) => sgn(v, 0), ctx: 'vs dépense estimée par MacroFactor', color: T.nutri }),
-        kpi({ label: 'Régularité du suivi', value: F.full.length ? (lg.length / F.full.length) * 100 : null, unit: '%', ctx: `${lg.length} jours loggés sur ${F.full.length}${isNum(adh) ? ` · ${nf(adh, 0)} % à ±10 % de la cible` : ''}`, meter: F.full.length ? (lg.length / F.full.length) * 100 : null, color: T.nutri }),
-        kpi({ label: 'Score nutrition', value: ns.length ? mean(ns) : null, unit: '/100', ctx: 'calories, protéines et fibres vs cibles', meter: ns.length ? mean(ns) : null, color: T.nutri }),
+        kpi({ icon: 'flame', label: 'Calories', value: kc, unit: 'kcal/j', ctx: tk ? `cible moyenne ${nf(tk, 0)} kcal · ${sgn(kc - tk, 0)} kcal` : 'jours loggés', color: T.nutri }),
+        kpi({ icon: 'food', label: 'Protéines', value: pkg.length ? mean(pkg) : null, digits: 2, unit: 'g/kg', ctx: pkg.length ? `${nf((pkg.filter((v) => v >= pLo).length / pkg.length) * 100, 0)} % des jours ≥ ${nf(pLo, 1)} g/kg` : '', color: T.nutri }),
+        kpi({ icon: 'scale', label: 'Balance', value: balD.length ? mean(balD) : null, unit: 'kcal/j', fmt: (v) => sgn(v, 0), ctx: 'vs dépense estimée par MacroFactor', color: T.nutri }),
+        kpi({ icon: 'calendar', label: 'Régularité du suivi', value: F.full.length ? (lg.length / F.full.length) * 100 : null, unit: '%', ctx: `${lg.length} jours loggés sur ${F.full.length}${isNum(adh) ? ` · ${nf(adh, 0)} % à ±10 % de la cible` : ''}`, meter: F.full.length ? (lg.length / F.full.length) * 100 : null, color: T.nutri }),
+        kpi({ icon: 'trophy', label: 'Score nutrition', value: ns.length ? mean(ns) : null, unit: '/100', ctx: 'calories, protéines et fibres vs cibles', meter: ns.length ? mean(ns) : null, color: T.nutri }),
       ].join(''));
 
       // ---- énergie
@@ -73,7 +73,7 @@
       const pr = SD.agg(lg, (x) => x.d, (x) => x.prot, 'mean', g), cb = SD.agg(lg, (x) => x.d, (x) => x.carb, 'mean', g), ft = SD.agg(lg, (x) => x.d, (x) => x.fat, 'mean', g);
       const pct = S.macroView === 'pct';
       const toPct = (i, v, k) => { const e = (pr[i].v || 0) * 4 + (cb[i].v || 0) * 4 + (ft[i].v || 0) * 9; return e && isNum(v) ? +(((v * k) / e) * 100).toFixed(1) : null; };
-      const mser = [['Protéines', pr, 4, T.s[0]], ['Glucides', cb, 4, T.nutri], ['Lipides', ft, 9, T.s[2]]];
+      const mser = [['Protéines', pr, 4, T.s[0]], ['Glucides', cb, 4, T.s[1]], ['Lipides', ft, 9, T.s[2]]];
       setText('bd-macro-s', pct ? 'Part de l’énergie apportée par chaque macro' : `Grammes par jour, moyenne par ${SD.granUnit(g)}`);
       chart('bd-macro', lg.length ? base({
         grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },
@@ -86,7 +86,7 @@
       // ---- protéines / kg
       const [p0, p1] = cfg.proteinPerKg;
       ts('bd-prot', { name: 'Protéines', get: (x) => (SD.logged(x) && isNum(x.prot) && isNum(x.trendW) ? x.prot / x.trendW : null), color: T.s[0], unit: 'g/kg', digits: 2, type: 'line', gap: 30, onDay: SD.openDay,
-        markArea: { silent: true, itemStyle: { color: 'rgba(30,215,135,0.08)' }, label: { color: T.muted, fontSize: 11, position: 'insideTopRight', formatter: `cible ${nf(p0, 1)}–${nf(p1, 1)}` }, data: [[{ yAxis: p0 }, { yAxis: p1 }]] } });
+        markArea: { silent: true, itemStyle: { color: T.wash.good }, label: { color: T.muted, fontSize: 11, position: 'insideTopRight', formatter: `cible ${nf(p0, 1)}–${nf(p1, 1)}` }, data: [[{ yAxis: p0 }, { yAxis: p1 }]] } });
 
       // ---- score nutrition
       ts('bd-score', { name: 'Score nutrition', get: SD.scores.nutriScore, color: T.nutri, unit: '/100', digits: 0, type: 'bar', colorOf: (x) => SD.scoreColor(SD.scores.nutriScore(x)), yExtra: { min: 0, max: 100 }, onDay: SD.openDay,
@@ -107,11 +107,11 @@
       chart('bd-hyd', base({
         grid: { left: 8, right: 14, top: 40, bottom: 8, containLabel: true },
         legend: SD.ui.ecLegend(T, ['Boissons', 'Eau des aliments', 'Cible']),
-        tooltip: Object.assign(base().tooltip, { axisPointer: { type: 'shadow' }, formatter: (ps) => { const x = hd[ps[0].dataIndex]; const dr = SD.scores.drinks(x); return tipBox(SD.fdL(x.d), [{ color: T.s[0], box: true, value: dr != null ? nf(dr / 1000, 2) + ' L' : 'non notées', name: 'boissons' }, { color: 'rgba(57,135,229,0.35)', box: true, value: isNum(x.water) ? nf(x.water / 1000, 2) + ' L' : '—', name: 'eau des aliments' }, { color: T.ink2, value: nf(SD.scores.hydroTarget(x) / 1000, 1) + ' L', name: 'cible' }]); } }),
+        tooltip: Object.assign(base().tooltip, { axisPointer: { type: 'shadow' }, formatter: (ps) => { const x = hd[ps[0].dataIndex]; const dr = SD.scores.drinks(x); return tipBox(SD.fdL(x.d), [{ color: T.hydro, box: true, value: dr != null ? nf(dr / 1000, 2) + ' L' : 'non notées', name: 'boissons' }, { color: T.foodWater, box: true, value: isNum(x.water) ? nf(x.water / 1000, 2) + ' L' : '—', name: 'eau des aliments' }, { color: T.ink2, value: nf(SD.scores.hydroTarget(x) / 1000, 1) + ' L', name: 'cible' }]); } }),
         xAxis: xCat(hd.map((x) => SD.fdS(x.d))), yAxis: yVal({ min: 0, name: 'L' }),
         series: [
-          bar('Eau des aliments', hd.map((x) => (isNum(x.water) ? +(x.water / 1000).toFixed(2) : null)), 'rgba(57,135,229,0.35)', { stack: 'h' }),
-          bar('Boissons', hd.map((x) => { const dr = SD.scores.drinks(x); return dr != null ? +(dr / 1000).toFixed(2) : null; }), T.s[0], { stack: 'h' }),
+          bar('Eau des aliments', hd.map((x) => (isNum(x.water) ? +(x.water / 1000).toFixed(2) : null)), T.foodWater, { stack: 'h' }),
+          bar('Boissons', hd.map((x) => { const dr = SD.scores.drinks(x); return dr != null ? +(dr / 1000).toFixed(2) : null; }), T.hydro, { stack: 'h', itemStyle: { color: T.hydro, borderRadius: [4, 4, 0, 0] } }),
           line('Cible', hd.map((x) => { const t = SD.scores.hydroTarget(x); return t ? +(t / 1000).toFixed(2) : null; }), T.ink2, { connectNulls: true, lineStyle: { width: 1.5, type: 'dashed', color: T.ink2 } }),
         ],
       }), () => ({ cols: ['Date', 'Boissons (L)', 'Eau des aliments (L)', 'Cible (L)'], rows: hd.map((x) => { const dr = SD.scores.drinks(x); const t = SD.scores.hydroTarget(x); return [fdM(x.d), dr != null ? nf(dr / 1000, 2) : '—', isNum(x.water) ? nf(x.water / 1000, 2) : '—', t ? nf(t / 1000, 1) : '—']; }) }));

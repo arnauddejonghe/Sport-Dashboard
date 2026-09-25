@@ -3,11 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="dark">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f2f3f6" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0c0f" media="(prefers-color-scheme: dark)">
 <title>Salle des Machines</title>
+<script>try { var t = localStorage.getItem('sdm-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&display=swap">
 <link rel="stylesheet" href="src/styles.css">
 </head>
 <body>
@@ -15,18 +18,17 @@
   <aside class="side" aria-label="Navigation">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/></svg>
       </div>
       <div><b>Salle des Machines</b><span id="brand-sub"></span></div>
     </div>
     <nav class="nav" id="nav" aria-label="Pages"></nav>
-    <div class="side-foot"><div class="sync" id="sync" hidden></div></div>
+    <div class="side-foot"><div class="sync" id="sync" hidden></div><div class="theme-sw" data-theme-sw></div></div>
   </aside>
 
   <div class="main">
-    <div class="wrap"><nav class="mnav" id="mnav" aria-label="Pages"></nav></div>
     <header class="wrap topbar">
-      <div>
+      <div class="topbar-t">
         <h1 id="page-title"></h1>
         <p class="sub" id="page-sub"></p>
       </div>
@@ -37,17 +39,28 @@
         <button type="button" class="btn" id="import-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-4-4m4 4 4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Données</button>
       </div>
     </header>
-    <section class="wrap filters" id="filters" aria-label="Filtres">
-      <div id="fbody"></div>
-      <div class="timeline" id="timeline" aria-label="Chronologie : fais glisser les poignées pour choisir la période"></div>
-    </section>
+    <div class="wrap">
+      <section class="filters" id="filters" aria-label="Filtres">
+        <div id="fbody"></div>
+        <div class="timeline" id="timeline" aria-label="Chronologie : fais glisser les poignées pour choisir la période"></div>
+      </section>
+    </div>
     <main class="wrap view" id="view"></main>
   </div>
+
+  <nav class="tabbar" id="mnav" aria-label="Pages"></nav>
+</div>
+
+<div class="scrim" id="sheet-scrim" hidden></div>
+<div class="sheet" id="navsheet" hidden role="dialog" aria-modal="true" aria-label="Toutes les pages">
+  <div class="grab" aria-hidden="true"></div>
+  <div id="navsheet-b"></div>
+  <div class="sheet-foot"><span>Thème</span><div class="theme-sw" data-theme-sw></div></div>
 </div>
 
 <div id="onboarding" class="wrap" hidden style="padding-block:48px">
   <div class="brand" style="margin-bottom:24px">
-    <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/></svg></div>
+    <div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9v6M6 6.5v11M18 6.5v11M21 9v6M6 12h12"/></svg></div>
     <div><b>Salle des Machines</b><span>Aucune donnée chargée pour l’instant.</span></div>
   </div>
   <section class="card" style="max-width:720px">
