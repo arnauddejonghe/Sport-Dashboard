@@ -16,16 +16,60 @@
     };
   }
 
+  let phaseEdit = false;
+  /** Objectif en cours : phase MacroFactor (ou saisie), rythme visé, cohérence avec les cibles actuelles */
+  function renderPhase() {
+    const { M } = SD;
+    const el = document.getElementById('ov-phase');
+    if (!el) return;
+    const today = new Date().toLocaleDateString('sv-SE');
+    const ref = today > M.last ? M.last : today;
+    const ck = SD.phaseCheck(M, today);
+    const lastTw = [...M.days].reverse().find((x) => isNum(x.trendW));
+    const pt = lastTw ? SD.phaseTarget(ref, lastTw.trendW) : null;
+    const ov = SD.prefs.get('phase', null);
+    const p = ck.phase;
+    const who = p ? (p.src === 'manuel' ? 'saisi dans le dashboard' : p.src === 'config' ? 'configuration' : `MacroFactor${ck.full ? `, export complet du ${fdM(ck.full)}` : ''}`) : '';
+    const t = ck.target;
+    let html = `<div class="ph-line"><span class="pill"><span class="dot" style="background:${p ? SD.phaseColor(p.name) : SD.T.muted}"></span>Objectif en cours <b>${p ? esc(p.name) : 'inconnu'}</b></span>
+      <span class="ph-txt">${p ? `depuis le ${esc(fdM(p.start))} · ${esc(who)}` : 'aucun objectif de poids dans tes exports MacroFactor'}${pt && isNum(pt.lo) ? ` · rythme visé ${sgn(pt.lo, 2)} à ${sgn(pt.hi, 2)} kg/sem (${esc(pt.src)})` : ''}</span>
+      <button type="button" class="link" id="ov-phase-edit">${phaseEdit ? 'Fermer' : 'Modifier'}</button></div>`;
+    if (t) html += `<p class="note">Cibles actuelles : <b>${nf(t.kcal, 0)} kcal</b> (${t.src === 'programme' ? `programme du ${fdM(t.from)}` : `MacroFactor, ${fdM(t.from)}`})${isNum(ck.bal) ? `, soit ${sgn(ck.bal, 0)} kcal/j par rapport à ta dépense estimée (${nf(ck.tdee, 0)} kcal) : ${ck.implied === 'Prise de masse' ? 'surplus' : ck.implied === 'Sèche' ? 'déficit' : 'équilibre'}` : ''}.</p>`;
+    if (ck.changed && (!ov || !ov.name)) html += `<div class="alert warn"><b>Cibles changées après ton dernier export complet</b>Tes cibles MacroFactor sont passées à ${nf(t.kcal, 0)} kcal le ${esc(fdM(ck.since || t.from))}, après ton export complet du ${esc(fdM(ck.full))} (le seul qui contient tes objectifs de poids). Si ton objectif a changé, fais un export complet dans MacroFactor ou indique-le ici avec « Modifier ».</div>`;
+    else if (ck.mismatch) html += `<div class="alert warn"><b>Objectif et cibles ne concordent pas</b>Tes cibles actuelles correspondent plutôt à : ${esc(ck.implied)}. Vérifie ton objectif dans MacroFactor (export complet) ou indique-le ici.</div>`;
+    if (phaseEdit) {
+      const cur = ov && ov.name ? ov.name : '';
+      html += `<form class="ph-form" onsubmit="return false"><label>Objectif<select class="fselect" name="pname"><option value=""${!cur ? ' selected' : ''}>Automatique (MacroFactor)</option>${['Prise de masse', 'Maintien', 'Sèche'].map((n) => `<option${n === cur ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label>Depuis le<input type="date" class="field" name="pstart" value="${esc((ov && ov.start) || (ck.changed && t ? ck.since || t.from : today))}"></label>
+        <label>Rythme (% du poids / sem)<input type="number" class="field" name="prate" step="0.05" min="0" max="2" placeholder="ex. 0,25" value="${ov && isNum(ov.rate) ? ov.rate : ''}"></label>
+        <button type="button" class="btn primary" id="ov-phase-save">Enregistrer</button><span class="fsummary" id="ov-phase-st">${SD.prefs.mode === 'db' ? 'Partagé entre tes appareils' : 'Enregistré dans ce navigateur'}</span></form>
+        <p class="note">« Automatique » reprend les objectifs de poids de ton dernier export complet MacroFactor. Le rythme sert au pilier Corps (±40 %) ; laisse vide pour garder celui de MacroFactor ou de la configuration.</p>`;
+    }
+    el.innerHTML = html;
+    document.getElementById('ov-phase-edit').onclick = () => { phaseEdit = !phaseEdit; renderPhase(); };
+    const sv = document.getElementById('ov-phase-save');
+    if (sv) sv.onclick = async () => {
+      const f = el.querySelector('.ph-form');
+      const v = (n) => f.querySelector(`[name="${n}"]`).value;
+      const name = v('pname'), start = v('pstart'), rate = v('prate') === '' ? null : Math.max(0, Math.min(2, +String(v('prate')).replace(',', '.')));
+      const r = await SD.prefs.set('phase', name && start ? { name, start, rate } : null);
+      phaseEdit = false;
+      SD.onPrefs();
+      const st = document.getElementById('ov-phase-st');
+      if (st) st.textContent = `Enregistré ${r.where}`;
+    };
+  }
+
   const overview = {
     id: 'overview', title: 'Vue d’ensemble', sub: 'Note globale de la période, ce qui la tire vers le haut ou le bas, et tes grandes tendances.',
     html() {
       const S = SD.S;
       return `<section class="card c12"><div class="hero"><div id="ov-ring"></div><div><div class="card-h" style="margin:0"><div><h2>${hic('trophy', 'accent')}Note globale</h2><p class="sub" id="ov-period"></p></div></div>
-          <h3 id="ov-verdict"></h3><p id="ov-verdict-sub"></p><div class="levers" id="ov-levers"></div></div></div>
+          <h3 id="ov-verdict"></h3><p id="ov-verdict-sub"></p><div class="levers" id="ov-levers"></div><div class="phasebox" id="ov-phase"></div></div></div>
           <div class="pillars" id="ov-pillars" style="margin-top:18px"></div></section>
         ${card('c6', 'ov-radar', 'Profil de la période', 'Les 6 piliers, période actuelle vs période précédente (0–100)', '', { h: 'tall', icon: 'target', tone: 'accent' })}
         ${card('c6', 'ov-card', 'Bulletin', '', '', { h: 'tall', icon: 'list', tone: 'accent' })}
-        ${card('c12', 'ov-rs', 'Récupération & charge', 'Barres de récupération colorées par zone (vert ≥ 67, jaune 34–66, rouge ≤ 33), charge du jour en dessous · Maj + molette pour zoomer', '', { h: 'tall', icon: 'recovery', tone: 'rec' })}
+        ${card('c12', 'ov-rs', 'Récupération & charge', '', '', { h: 'tall', icon: 'recovery', tone: 'rec' })}
         <div class="kpis" id="ov-k"></div>
         <section class="card c12"><div class="card-h"><div><h2>${hic('info', 'accent')}À retenir</h2><p class="sub">Calculé sur la période et les filtres actifs · n = taille de l’échantillon</p></div><div class="card-tools"><button type="button" class="link" id="ov-ins-more" hidden>Voir tout</button></div></div><div class="insights" id="ov-ins"></div></section>
         ${card('c12', 'ov-cal', 'Calendrier', '', seg('calMetric', [['score', 'Note'], ['rec', 'Récup'], ['strain', 'Charge'], ['sleepH', 'Sommeil'], ['steps', 'Pas'], ['train', 'Muscu']], S.calMetric), { h: 'short', icon: 'calendar', tone: 'accent' })}
@@ -52,6 +96,8 @@
           <div class="dl delta ${isNum(dl) ? (dl > 1 ? 'up-good' : dl < -1 ? 'down-bad' : 'flat') : 'flat'}">${isNum(dl) ? sgn(dl, 0) + ' vs préc.' : '&nbsp;'}</div><div class="d">${p.state ? 'État, hors note · ' : ''}${esc(cur.detail[p.key])}</div></div>`;
       }).join(''));
       document.querySelectorAll('#ov-pillars [data-goto]').forEach((el) => { el.onclick = () => SD.showPage(el.dataset.goto); });
+
+      renderPhase();
 
       // ---- radar
       const ind = SD.scores.PILLARS.map((p) => ({ name: p.label, max: 100 }));
@@ -93,7 +139,8 @@
       cc && cc.on('click', (p) => SD.ui.drill(keys[p.value[0]], g));
 
       // ---- récup & charge
-      SD.ui.recStrainChart('ov-rs');
+      const rs = SD.ui.recStrainChart('ov-rs');
+      setText('ov-rs-s', `Même échelle 0–100 : barres = récupération (vert ≥ 67, jaune 34–66, rouge ≤ 33), ligne = charge du jour, pointillés = charge conseillée pour ta récupération (± 7)${rs && rs.over ? ` · ${rs.over} jour${rs.over > 1 ? 's' : ''} en zone rouge avec une charge au-dessus du conseillé` : ''} · Maj + molette pour zoomer`);
 
       // ---- KPI
       const wkAgg = (f) => SD.agg(F.days, (x) => x.d, f, 'mean', 'week').map((o) => o.v);

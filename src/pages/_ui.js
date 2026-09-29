@@ -208,30 +208,41 @@
   }
 
   /** Barres de récupération colorées par zone + charge alignée (deux grilles, un seul axe temps) */
+  /**
+   * Récupération et charge superposées sur une seule échelle 0–100 (les deux sont des scores 0–100) : barres de récupération
+   * teintées par zone, charge du jour en ligne, charge conseillée pour la récupération du jour en pointillés.
+   * Une charge au-dessus de la charge conseillée un jour de récupération basse se voit d'un coup d'œil.
+   */
   function recStrainChart(id) {
     const { F, T } = SD;
     const days = F.full.filter((x) => isNum(x.rec) || isNum(x.strain));
     if (!days.length) { chart(id, base(emptyOpt('Pas de données de récupération ou de charge'))); return; }
     const x0 = SD.tms(SD.S.from), x1 = SD.tms(SD.S.to) + SD.DAY - 1;
-    const xa = (gi, show) => Object.assign(xTime({ min: x0, max: x1 }), { gridIndex: gi, axisLabel: { show, color: T.muted, hideOverlap: true, formatter: (v) => fdate(dstr(v), F.len <= 120 ? { day: 'numeric', month: 'short' } : { month: 'short', year: '2-digit' }) } });
+    const tgt = (x) => (isNum(x.rec) ? Math.round(SD.scores.strainTarget(x.rec)) : null);
+    const over = days.filter((x) => isNum(x.rec) && x.rec < 34 && isNum(x.strain) && x.strain > tgt(x) + 7).length;
     const c = chart(id, base({
-      axisPointer: { link: [{ xAxisIndex: 'all' }] },
-      grid: [{ left: 44, right: 16, top: 26, height: '38%' }, { left: 44, right: 16, top: '60%', bottom: 26 }],
-      tooltip: Object.assign(base().tooltip, { formatter: (ps) => { const v = ps && ps[0] && ps[0].value; return v ? SD.ui.dayTip(dstr(v[0]), 'Récupération (haut) et charge (bas) alignées') : ''; } }),
-      title: [
-        { text: 'Récupération (%)', left: 44, top: 2, textStyle: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT, fontWeight: 600 } },
-        { text: 'Charge (0–100)', left: 44, top: '52%', textStyle: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT, fontWeight: 600 } },
-      ],
+      grid: { left: 8, right: 16, top: 40, bottom: 26, containLabel: true },
+      legend: Object.assign(ecLegend(T, ['Récupération', 'Charge', 'Charge conseillée']), { left: 0, right: 'auto' }),
+      tooltip: Object.assign(base().tooltip, { axisPointer: { type: 'line', lineStyle: { color: T.axis } }, formatter: (ps) => {
+        const v = ps && ps[0] && ps[0].value;
+        if (!v) return '';
+        const x = SD.M.at(dstr(v[0]));
+        const t = x ? tgt(x) : null;
+        const gap = x && isNum(x.strain) && isNum(t) ? x.strain - t : null;
+        return SD.ui.dayTip(dstr(v[0]), isNum(t) ? `Charge conseillée pour cette récupération : ${t} ± 7${isNum(gap) && Math.abs(gap) > 7 ? ` · charge ${gap > 0 ? 'au-dessus' : 'en dessous'} (${sgn(gap, 0)})` : ''}` : 'Clic pour le détail du jour');
+      } }),
       toolbox: SD.toolbox(),
-      dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }],
-      xAxis: [xa(0, false), xa(1, true)],
-      yAxis: [yVal({ gridIndex: 0, min: 0, max: 100, interval: 50 }), yVal({ gridIndex: 1, min: 0, max: 100, interval: 50 })],
+      dataZoom: [{ type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }],
+      xAxis: Object.assign(xTime({ min: x0, max: x1 }), { axisLabel: { color: T.muted, hideOverlap: true, formatter: (v) => fdate(dstr(v), F.len <= 120 ? { day: 'numeric', month: 'short' } : { month: 'short', year: '2-digit' }) } }),
+      yAxis: yVal({ min: 0, max: 100, interval: 25, name: '0–100' }),
       series: [
-        { name: 'Récupération', type: 'bar', xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 12, data: days.filter((x) => isNum(x.rec)).map((x) => ({ value: [tms(x.d), x.rec], itemStyle: { color: SD.recColor(x.rec), borderRadius: [3, 3, 0, 0] } })) },
-        { name: 'Charge', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 12, data: days.filter((x) => isNum(x.strain)).map((x) => ({ value: [tms(x.d), x.strain], itemStyle: { color: T.strain, borderRadius: [3, 3, 0, 0], opacity: 0.9 } })) },
+        { name: 'Récupération', type: 'bar', barMaxWidth: 12, itemStyle: { color: T.rec }, data: days.filter((x) => isNum(x.rec)).map((x) => ({ value: [tms(x.d), x.rec], itemStyle: { color: SD.recColor(x.rec), opacity: 0.55, borderRadius: [4, 4, 0, 0] } })) },
+        line('Charge conseillée', days.filter((x) => isNum(x.rec)).map((x) => [tms(x.d), tgt(x)]), T.ink2, { step: 'middle', showSymbol: false, lineStyle: { width: 1.5, type: 'dashed', color: T.ink2 }, z: 3 }),
+        line('Charge', days.filter((x) => isNum(x.strain)).map((x) => [tms(x.d), x.strain]), T.strain, { showSymbol: F.len <= 45, symbolSize: 8, lineStyle: { width: 2, color: T.strain }, itemStyle: { color: T.strain, borderColor: T.card, borderWidth: 2 }, z: 4 }),
       ],
-    }), () => ({ cols: ['Date', 'Récupération (%)', 'Charge'], rows: days.map((x) => [fdM(x.d), nf(x.rec, 0), nf(x.strain, 0)]) }));
+    }), () => ({ cols: ['Date', 'Récupération (%)', 'Charge', 'Charge conseillée'], rows: days.map((x) => [fdM(x.d), nf(x.rec, 0), nf(x.strain, 0), isNum(tgt(x)) ? String(tgt(x)) : '—']) }));
     c && c.on('click', (p) => p.value && SD.openDay(dstr(p.value[0])));
+    return { over };
   }
 
   SD.ui = { seg, hic, card, setText, setHTML, clampSubs, segSync, ecLegend, drill, unitWeek, avgOf, prevDelta, dayTip, weightChart, typesChart, calendar, recStrainChart };

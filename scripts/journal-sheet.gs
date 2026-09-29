@@ -38,19 +38,25 @@ function columns_(sh, wanted) {
 function setup() {
   var sh = sheet_();
   var data = sh.getDataRange().getDisplayValues();
-  var oldHead = (data[0] || []).map(norm_);
+  var rawHead = data[0] || [];
+  var oldHead = rawHead.map(norm_);
   var already = HEADERS.every(function (h) { return oldHead.indexOf(norm_(h)) >= 0; });
   if (!already) {
-    // migration : on remet les colonnes existantes (Date, Notes…) sous les nouveaux en-têtes
+    // migration : on remet les colonnes existantes (Date, Notes…) sous les nouveaux en-têtes ;
+    // les colonnes à toi que le journal ne connaît pas (ex. « Douleurs ») sont gardées à la fin, avec leurs valeurs
     var alias = { notes: 'note', note: 'note', texte: 'note', commentaire: 'note', jour: 'date' };
+    var known = HEADERS.map(norm_);
+    var extra = [];
+    rawHead.forEach(function (h) { var k = norm_(h); if (k && known.indexOf(alias[k] || k) < 0 && extra.indexOf(h) < 0) extra.push(String(h).trim()); });
+    var head = HEADERS.concat(extra);
     var rows = data.slice(1).filter(function (r) { return r.join('').trim(); }).map(function (r) {
       var o = {};
-      oldHead.forEach(function (h, i) { o[alias[h] || h] = r[i]; });
-      return HEADERS.map(function (h) { var k = norm_(h); return k === 'source' ? (o.source || 'manuel') : (o[k] || ''); });
+      oldHead.forEach(function (h, i) { if (h) o[alias[h] || h] = r[i]; });
+      return head.map(function (h) { var k = norm_(h); return k === 'source' ? (o.source || 'manuel') : (o[k] || ''); });
     });
     sh.clear();
-    sh.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]).setFontWeight('bold');
-    if (rows.length) sh.getRange(2, 1, rows.length, HEADERS.length).setValues(rows);
+    sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
+    if (rows.length) sh.getRange(2, 1, rows.length, head.length).setValues(rows);
   }
   sh.setFrozenRows(1);
   // Date, Heure et Modifié en texte : pas de conversion automatique de format

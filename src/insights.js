@@ -55,8 +55,9 @@
       const a = tw[0], b = tw[tw.length - 1];
       const wks = (nDays(a.d, b.d) - 1) / 7;
       const rate = (b.trendW - a.trendW) / wks;
-      const phase = b.phase;
-      const rt = phase && cfg.weeklyRate && cfg.weeklyRate[phase];
+      const pt = SD.phaseTarget(b.d, b.trendW);
+      const phase = pt ? pt.name : b.phase;
+      const rt = pt && isNum(pt.lo) ? [pt.lo, pt.hi] : null;
       let verdict = '';
       if (rt) verdict = rate < rt[0] ? ' Sous la cible de la phase.' : rate > rt[1] ? ' Au-dessus de la cible de la phase.' : ' Dans la cible de la phase.';
       add({

@@ -94,6 +94,10 @@
 
   // ================================================================ icônes (traits 24 × 24)
   const ICON = {
+    sparkle: '<path d="M12 3l1.8 4.9L19 9.7l-5.2 1.8L12 16.5l-1.8-5L5 9.7l5.2-1.8z"/><path d="M19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z"/>',
+    pin: '<path d="M12 17v5"/><path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/>',
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
+    sync: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3v5h5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 21v-5h-5"/>',
     today: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     overview: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
     recovery: '<path d="M3 12h4l2-5 4 10 2-5h6"/>',
@@ -211,6 +215,116 @@
     return 'Full body';
   }
 
+  // ================================================================ cibles nutrition et phases
+  /**
+   * Cible nutrition d'un jour, par ordre de fiabilité :
+   *  1. la cible que MacroFactor affichait ce jour-là (export rapide, jours loggés) ;
+   *  2. le programme (« Nutrition Program Settings » de l'export complet) : dernière mise à jour <= jour, par jour de semaine.
+   *     MacroFactor peut décaler d'un jour les libellés de jour de semaine : le décalage est calé sur les cibles réelles ;
+   *  3. si les cibles réelles montrent que le programme a changé depuis le dernier export complet : la cible réelle du même
+   *     jour de semaine depuis le changement, sinon la dernière cible connue.
+   * Chaque cible porte sa source (`src` : jour, programme, dernière) et la date dont elle vient (`from`).
+   */
+  function buildTargets(list, days) {
+    const upd = [];
+    for (const t of [...list].sort((a, b) => a.d.localeCompare(b.d))) {
+      let u = upd[upd.length - 1];
+      if (!u || u.d !== t.d) upd.push((u = { d: t.d, wd: {} }));
+      u.wd[t.wd] = t;
+    }
+    const daily = days.filter((x) => x.mfTgt && isNum(x.mfTgt.kcal)).map((x) => ({ d: x.d, t: x.mfTgt }));
+    const dailyMap = new Map(daily.map((o) => [o.d, o.t]));
+    const jsDay = (d) => (wdOf(d) + 1) % 7;
+    const updAt = (d) => { let u = null; for (const v of upd) { if (v.d <= d) u = v; else break; } return u; };
+    const same = (a, b) => !!(a && b && Math.abs(a.kcal - b.kcal) <= 2 && Math.abs((a.prot || 0) - (b.prot || 0)) <= 2);
+    let off = 0, best = 0;
+    for (const o of [0, 1, 6]) {
+      let hit = 0;
+      for (const { d, t } of daily) { const u = updAt(d); if (u && same(u.wd[(jsDay(d) + o) % 7], t)) hit++; }
+      if (hit > best) { best = hit; off = o; }
+    }
+    const prog = (u, d) => (u ? u.wd[(jsDay(d) + off) % 7] || null : null);
+    const pick = (t, src, fromD) => ({ kcal: t.kcal, prot: t.prot, fat: t.fat, carb: t.carb, exp: t.exp, src, from: fromD });
+    function targetOf(d) {
+      const own = dailyMap.get(d);
+      if (own) return pick(own, 'jour', d);
+      const u = updAt(d);
+      const p = prog(u, d);
+      let L = null;
+      for (let i = daily.length - 1; i >= 0; i--) if (daily[i].d < d) { L = daily[i]; break; }
+      if (!L || (u && u.d >= L.d) || (p && same(prog(u, L.d), L.t))) return p ? pick(p, 'programme', u.d) : null;
+      let change = null;
+      for (const o of daily) if ((!u || o.d > u.d) && o.d <= L.d && !same(prog(u, o.d), o.t)) { change = o.d; break; }
+      let sameWd = null;
+      for (const o of daily) if (o.d >= (change || '') && o.d < d && jsDay(o.d) === jsDay(d)) sameWd = o;
+      const q = sameWd || L;
+      return pick(q.t, 'dernière', q.d);
+    }
+    targetOf.program = (d) => prog(updAt(d), d);
+    targetOf.offset = off;
+    targetOf.lastDaily = daily.length ? daily[daily.length - 1].d : null;
+    targetOf.lastProgram = upd.length ? upd[upd.length - 1].d : null;
+    return targetOf;
+  }
+
+  /** Préférence « objectif en cours » saisie dans le dashboard, quand l'export complet MacroFactor n'est plus à jour */
+  const phaseOverride = () => (SD.prefs && SD.prefs.get ? SD.prefs.get('phase', null) : null);
+  /** Phases MacroFactor (et de la configuration), éventuellement remplacées à partir d'une date par l'objectif saisi */
+  function applyPhases(M) {
+    const to = M.last;
+    let phases = (M.raw.phases || []).map((p) => Object.assign({}, p, { end: p.end || to }));
+    const ov = phaseOverride();
+    if (ov && ov.name && ov.start) {
+      phases = phases.filter((p) => p.start < ov.start).map((p) => (p.end >= ov.start ? Object.assign({}, p, { end: addD(ov.start, -1) }) : p));
+      phases.push({ name: ov.name, start: ov.start, end: to, open: true, rate: isNum(ov.rate) ? ov.rate : null, src: 'manuel' });
+    }
+    for (const x of M.days) x.phase = null;
+    for (const p of phases) {
+      const s = p.start < M.first ? M.first : p.start;
+      for (let d = s; d <= p.end && d <= to; d = addD(d, 1)) { const x = M.at(d); if (x) x.phase = p.name; }
+    }
+    M.phases = phases;
+    return phases;
+  }
+  const phaseAt = (d) => { const M = SD.M; let hit = null; for (const p of (M && M.phases) || []) if (p.start <= d && (!p.end || p.end >= d || p.open)) hit = p; return hit; };
+  /**
+   * Rythme de poids visé pour une phase (kg/sem) : taux MacroFactor (% du poids par semaine) ± 40 % en prise de masse et
+   * en sèche ; sinon la fourchette de la configuration (weeklyRate).
+   */
+  function phaseTarget(d, kg) {
+    const p = phaseAt(d);
+    if (!p) return null;
+    const cfg = SD.M.cfg.targets.weeklyRate || {};
+    const gain = /prise/i.test(p.name), loss = /s[èe]che/i.test(p.name);
+    if ((gain || loss) && isNum(p.rate) && p.rate > 0 && isNum(kg)) {
+      const r = (p.rate / 100) * kg * (loss ? -1 : 1);
+      const a = r * 0.6, b = r * 1.4;
+      return { phase: p, name: p.name, lo: Math.round(Math.min(a, b) * 100) / 100, hi: Math.round(Math.max(a, b) * 100) / 100, rate: r, src: `${p.src === 'manuel' ? 'objectif saisi' : 'MacroFactor'} ${String(p.rate).replace('.', ',')} %/sem` };
+    }
+    const c = cfg[p.name];
+    return c ? { phase: p, name: p.name, lo: c[0], hi: c[1], rate: (c[0] + c[1]) / 2, src: 'configuration' } : { phase: p, name: p.name, lo: null, hi: null, rate: null, src: '' };
+  }
+  /**
+   * Cohérence entre la phase connue et les cibles actuelles : bilan cible − dépense MacroFactor, et cibles modifiées
+   * après le dernier export complet (qui seul contient les objectifs de poids).
+   */
+  function phaseCheck(M, d) {
+    const t = M.targetOf(d);
+    const p = phaseAt(d);
+    let tdee = null;
+    for (let i = M.days.length - 1; i >= 0 && tdee == null; i--) if (M.days[i].d <= d && isNum(M.days[i].tdee)) tdee = M.days[i].tdee;
+    const full = (M.raw.sources || []).filter((s) => s.kind === 'macrofactor' && /full/i.test(s.fileName || '')).map((s) => String(s.exportedAt || '').slice(0, 10)).sort().pop() || null;
+    const bal = t && isNum(tdee) ? t.kcal - tdee : null;
+    const implied = isNum(bal) ? (bal > Math.max(120, tdee * 0.05) ? 'Prise de masse' : bal < -Math.max(120, tdee * 0.05) ? 'Sèche' : 'Maintien') : null;
+    const progT = t ? M.targetOf.program(t.from) : null;
+    // premier jour où la cible actuelle apparaît (les jours sans rien de loggé n'ont pas de cible : ils ne coupent pas la série)
+    let since = t ? t.from : null;
+    if (t) for (let i = M.days.length - 1; i >= 0; i--) { const y = M.days[i]; if (y.d > t.from || !y.mfTgt) continue; if (Math.abs(y.mfTgt.kcal - t.kcal) > 2) break; since = y.d; }
+    const changed = !!(t && full && t.from > full && progT && Math.abs(progT.kcal - t.kcal) > 2);
+    const mismatch = !!(p && implied && p.name !== implied && p.src !== 'manuel');
+    return { target: t, phase: p, tdee, bal, implied, full, changed, mismatch, since };
+  }
+
   // ================================================================ modèle
   function prepare(raw) {
     const cfg = withDefaults(raw.config);
@@ -227,9 +341,22 @@
     for (let d = from; d <= to; d = addD(d, 1)) days.push(Object.assign({ d }, src.get(d)));
     const idx = new Map(days.map((x, i) => [x.d, i]));
     const at = (d) => days[idx.get(d)];
+    // fraîcheur des sources : dernier export et dernier jour couvert (Apple Santé, MacroFactor)
+    const fresh = {};
+    for (const k of ['health', 'macrofactor']) {
+      const ss = (raw.sources || []).filter((q) => q.kind === k);
+      fresh[k] = { last: ss.map((q) => q.exportedAt).filter(Boolean).sort().pop() || null, to: ss.map((q) => q.to).filter(Boolean).sort().pop() || null };
+    }
+    const today = new Date().toLocaleDateString('sv-SE');
     for (const x of days) {
       x.wd = wdOf(x.d); x.w = []; x.ex = []; x.mus = [];
       if (isNum(x.sleepMin)) x.sleepH = x.sleepMin / 60;
+      // aujourd'hui (ou plus tard) : journée en cours, exclue des moyennes comme le jour d'un export
+      if (x.d >= today) { x.partial = true; x.inProgress = true; }
+      // aucun export Apple Santé ne couvre encore ce jour (sommeil, FC, HRV, boissons absents)
+      if (fresh.health.to && x.d > fresh.health.to) x.noHealth = true;
+      // jour d'un export Santé, terminé depuis : le total de pas de MacroFactor (synchronisé avec Apple Santé) est complet
+      if (x.partial && !x.inProgress && isNum(x.mfSteps) && x.mfSteps >= (isNum(x.steps) ? x.steps : 0)) { x.steps = x.mfSteps; x.stepsFull = true; }
     }
     for (const w of raw.workouts) { const x = at(w.d); if (x) x.w.push(w); }
     for (const e of raw.exercises) { const x = at(e.d); if (x) x.ex.push(e); }
@@ -265,25 +392,9 @@
       }
     }
 
-    // Cibles nutrition (MacroFactor) : dernière mise à jour <= jour, même jour de semaine
-    const upd = [];
-    for (const t of [...raw.targets].sort((a, b) => a.d.localeCompare(b.d))) {
-      let u = upd[upd.length - 1];
-      if (!u || u.d !== t.d) upd.push((u = { d: t.d, wd: {} }));
-      u.wd[t.wd] = t;
-    }
-    let ui = -1;
-    for (const x of days) {
-      while (ui + 1 < upd.length && upd[ui + 1].d <= x.d) ui++;
-      if (ui >= 0) { const t = upd[ui].wd[(x.wd + 1) % 7]; if (t) x.tgt = t; }
-    }
-
-    // Phases
-    const phases = (raw.phases || []).map((p) => Object.assign({}, p, { end: p.end || to }));
-    for (const p of phases) {
-      const s = p.start < from ? from : p.start;
-      for (let d = s; d <= p.end && d <= to; d = addD(d, 1)) { const x = at(d); if (x) x.phase = p.name; }
-    }
+    // Cibles nutrition MacroFactor (voir buildTargets) : cible réelle du jour, sinon programme, sinon dernière cible connue
+    const targetOf = buildTargets(raw.targets || [], days);
+    for (const x of days) { const t = targetOf(x.d); if (t) x.tgt = t; }
 
     // Moyennes glissantes 7 j (jours complets, au moins 4 valeurs)
     const roll = (key, out, win = 7, minN = 4) => {
@@ -313,11 +424,20 @@
     const partialDays = days.filter((x) => x.partial).map((x) => x.d);
     const lastComplete = [...days].reverse().find((x) => !x.partial && isNum(x.steps));
     const M = {
-      raw, cfg, days, idx, at, phases, exIndex, coach,
+      raw, cfg, days, idx, at, phases: [], exIndex, coach, targetOf, fresh, today,
       first: from, last: to, lastComplete: lastComplete ? lastComplete.d : to, partialDays,
     };
     SD.M = M;
+    applyPhases(M);
     if (SD.scores) SD.scores.enrich(M);
+    // dernière journée notable : avant aujourd'hui, assez de mesures pour une note ; sinon la dernière avec des données
+    if (SD.scores && SD.scores.dayScore) {
+      const past = days.filter((x) => x.d < today);
+      const ok = [...past].reverse().find((x) => (!x.partial || x.stepsFull) && isNum(SD.scores.dayScore(x)));
+      const any = [...past].reverse().find((x) => isNum(x.steps) || isNum(x.kcal) || isNum(x.sleepH) || x.w.length);
+      M.lastComplete = ok ? ok.d : any ? any.d : M.lastComplete;
+      M.lastData = any ? any.d : M.lastComplete;
+    }
     if (SD.plan) SD.plan.attach(M);
     return M;
   }
@@ -820,6 +940,7 @@
     PRESETS, DEFAULT_STATE, S, loadState, saveState, presetRange, setPreset, setRange, setDay, partialKcal, logged,
     compute, gran, bucketOf, bucketKeys, bucketEnd, bucketLabel, bucketTitle, granUnit, agg,
     chart, charts, tables, disposeDetached, resizeAll, renderTable, tipBox, axisTip, base, xTime, xCat, yVal, bar, line, series,
+    applyPhases, phaseAt, phaseTarget, phaseCheck,
     phaseColor, phaseArea, emptyOpt, zoom, toolbox, ts, ring, rangeBar, kpi, spark, statusPill, deltaCls, METRICS, pairs, rWord,
   });
 })();

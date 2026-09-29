@@ -77,7 +77,10 @@ function main() {
   fs.mkdirSync(DIST, { recursive: true });
   const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   const inline = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8').replace(/<\/script/gi, '<\\/script');
+  // script de la feuille du journal, affiché dans la page pour être copié dans Apps Script
+  const gs = JSON.stringify(fs.readFileSync(path.join(ROOT, 'scripts/journal-sheet.gs'), 'utf8')).replace(/<\//g, '<\\/');
   let single = html
+    .replace(/<script src="src\/app\.js"><\/script>/, (m) => `<script>window.SD_SHEET_SCRIPT = ${gs};</script>\n${m}`)
     .replace(/<link rel="stylesheet" href="src\/styles\.css">/, () => `<style>\n${fs.readFileSync(path.join(ROOT, 'src/styles.css'), 'utf8')}\n</style>`)
     .replace(/<script src="data\/dashboard-data\.js"><\/script>/, () => `<script>window.SD_DATA = ${json.replace(/<\//g, '<\\/')};</script>`)
     .replace(/<script src="(src\/[\w\/.-]+\.js)"><\/script>/g, (_, rel) => `<script>\n${inline(rel)}\n</script>`)

@@ -258,7 +258,7 @@
     const ref = isNum(x.effPlan) ? x.effPlan : SD.M.effZones ? SD.M.effZones.p50 : null;
     return ref ? Math.min(100, (x.eff.stim / ref) * 100) : null;
   }
-  const stepsScore = (x) => (isNum(x.steps) && !x.partial ? Math.min(100, (x.steps / SD.M.cfg.targets.stepsGoal) * 100) : null);
+  const stepsScore = (x) => (isNum(x.steps) && (!x.partial || x.stepsFull) ? Math.min(100, (x.steps / SD.M.cfg.targets.stepsGoal) * 100) : null);
   /** Composantes de la note du jour (ce qui dépend de toi) ; la récupération est un état, elle n'entre pas dans la note */
   function dayParts(x) {
     return [
@@ -269,9 +269,28 @@
       { k: 'hydro', l: 'Hydratation', v: hydroScore(x), d: 'boissons + aliments vs cible' },
     ];
   }
+  /** Note du jour : au moins 3 composantes mesurées, sinon pas de note (une note sur 1 ou 2 composantes serait trompeuse) */
   function dayScore(x) {
+    if (x.inProgress) return null;
     const v = dayParts(x).map((p) => p.v).filter(isNum);
-    return v.length >= 2 ? mean(v) : null;
+    return v.length >= 3 ? mean(v) : null;
+  }
+  const fdt = (iso) => { if (!iso) return '—'; const t = new Date(iso); return isNaN(t) ? String(iso).slice(0, 10) : t.toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); };
+  /**
+   * Données manquantes d'un jour et leur cause (export absent, rien loggé) : `parts` = composantes de la note touchées.
+   * Les boissons non notées ne sont pas une donnée manquante (habitude), la séance absente un jour de repos non plus.
+   */
+  function dayGaps(x) {
+    const M = SD.M, f = M.fresh || {}, out = [];
+    if (x.inProgress) out.push({ k: 'progress', l: 'Journée en cours', why: 'la note se calcule une fois la journée terminée', parts: ['sleep', 'nutri', 'steps', 'hydro'] });
+    if (x.noHealth) out.push({ k: 'health', l: 'Apple Santé', why: `aucun export ne couvre ce jour (dernier export : ${fdt(f.health && f.health.last)})`, parts: ['sleep', 'hydro'] });
+    else if (!isNum(x.sleepH) && !x.inProgress) out.push({ k: 'sleep', l: 'Sommeil', why: 'pas de nuit enregistrée dans Apple Santé', parts: ['sleep'] });
+    else if (x.partial && !x.inProgress && !x.stepsFull) out.push({ k: 'partial', l: 'Apple Santé', why: 'journée de l’export : activité incomplète', parts: ['steps'] });
+    if (!x.inProgress) {
+      if (!isNum(x.kcal)) out.push({ k: 'nutri', l: 'Nutrition', why: f.macrofactor && f.macrofactor.to && x.d > f.macrofactor.to ? `pas encore d’export MacroFactor pour ce jour (dernier : ${fdt(f.macrofactor.last)})` : 'rien loggé dans MacroFactor', parts: ['nutri'] });
+      else if (!SD.logged(x)) out.push({ k: 'nutri', l: 'Nutrition', why: `journée loggée partiellement (${SD.nf(x.kcal, 0)} kcal)`, parts: ['nutri'] });
+    }
+    return out;
   }
   /** Charge conseillée (centre de la fourchette, ±7) selon la récupération : 38 en zone rouge basse, 86 à 100 % */
   function strainTarget(rec) {
@@ -375,14 +394,15 @@
       const wk = a ? (SD.nDays(a.d, b.d) - 1) / 7 : 0;
       if (wk >= 1) rate = (b.trendW - a.trendW) / wk;
     }
-    const phase = tw.length ? tw[tw.length - 1].phase : null;
-    const rt = phase && cfg.weeklyRate && cfg.weeklyRate[phase];
-    if (isNum(rate) && rt) {
-      const dist = rate < rt[0] ? rt[0] - rate : rate > rt[1] ? rate - rt[1] : 0;
+    const lastTw = tw.length ? tw[tw.length - 1] : null;
+    const pt = lastTw ? SD.phaseTarget(lastTw.d, lastTw.trendW) : null;
+    const phase = pt ? pt.name : null;
+    if (isNum(rate) && pt && isNum(pt.lo)) {
+      const dist = rate < pt.lo ? pt.lo - rate : rate > pt.hi ? rate - pt.hi : 0;
       // sur moins de 4 semaines, le rythme est plus bruité (eau, glycogène) : tolérance élargie
       const tol = span < 28 ? 0.3 : 0.2;
       out.body = Math.max(0, 100 - (dist / tol) * 50);
-      detail.body = `${SD.sgn(rate, 2)} kg/sem · cible ${phase} ${SD.sgn(rt[0], 2)} à ${SD.sgn(rt[1], 2)}`;
+      detail.body = `${SD.sgn(rate, 2)} kg/sem · cible ${phase} ${SD.sgn(pt.lo, 2)} à ${SD.sgn(pt.hi, 2)} (${pt.src})`;
     } else {
       out.body = null;
       detail.body = isNum(rate) ? `${SD.sgn(rate, 2)} kg/sem (pas de cible de phase)` : 'Pas assez de pesées';
@@ -677,7 +697,7 @@
   }
 
   SD.scores = {
-    phi, robust, enrich, nutriScore, dayScore, dayParts, trainScore, hydroTarget, hydroScore, hydroTotal, drinks, kcalAdh, protAdh, rirWeight, effZone, EFF_ZONES, EFF_LABEL, strainTarget, strengthIndex, periodScores, PILLARS, grade, verdict,
+    phi, robust, enrich, nutriScore, dayScore, dayGaps, dayParts, trainScore, hydroTarget, hydroScore, hydroTotal, drinks, kcalAdh, protAdh, rirWeight, effZone, EFF_ZONES, EFF_LABEL, strainTarget, strengthIndex, periodScores, PILLARS, grade, verdict,
     recZone, strainZone, STRAIN_LABEL, STRAIN_ZONES, bioAge, bioAgeHistory, ageAt, biomarkers, BIOMARKERS, AUTO_TAGS, tagImpact, projection,
     FRIEND_REF: (age, sex) => interp(FRIEND[sex || 'male'], age),
   };

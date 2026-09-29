@@ -29,26 +29,48 @@
     }
     return out;
   }
+  // ---- exercices clés : épinglés (préférence partagée entre appareils), complétés par les plus faits de la période
+  const MAX_KEYS = 12, AUTO_KEYS = 8;
+  function pins() {
+    const p = SD.prefs && SD.prefs.get('keyEx', null);
+    if (Array.isArray(p)) return p;
+    // ancien choix enregistré dans ce navigateur : repris une fois dans les préférences partagées
+    if (Array.isArray(SD.S.keyEx) && SD.S.keyEx.length && SD.prefs) { const old = SD.S.keyEx.slice(); SD.S.keyEx = null; SD.saveState(); SD.prefs.set('keyEx', old); return old; }
+    return [];
+  }
+  const fillOn = () => !(SD.prefs && SD.prefs.get('keyExFill', true) === false);
+  async function setPins(list) { await SD.prefs.set('keyEx', list.slice(0, MAX_KEYS)); SD.refresh(); }
   function keyList(sumy) {
     const M = SD.M;
-    let keys = [];
-    const chosen = Array.isArray(SD.S.keyEx) && SD.S.keyEx.length ? SD.S.keyEx : M.cfg.keyExercises || [];
-    for (const n of chosen) { const o = sumy.find((x) => x.n === n); if (o) keys.push(o); }
-    if (keys.length < 4 && !(Array.isArray(SD.S.keyEx) && SD.S.keyEx.length)) for (const o of sumy.slice().sort((a, b) => b.count - a.count)) { if (keys.length >= 8) break; if (!keys.includes(o) && o.count >= 3) keys.push(o); }
-    return keys.slice(0, 10);
+    const pinned = pins();
+    const keys = [];
+    for (const n of pinned) {
+      const o = sumy.filter((x) => x.n === n).sort((a, b) => b.count - a.count)[0];
+      keys.push(Object.assign({}, o || { n, key: null, count: 0, missing: true }, { pinned: true }));
+    }
+    if (fillOn() || !pinned.length) {
+      // à compléter : exercices de la configuration présents sur la période, puis les plus faits
+      const cfgN = new Set(M.cfg.keyExercises || []);
+      const pool = sumy.filter((o) => o.count >= 2 && !pinned.includes(o.n)).sort((a, b) => (cfgN.has(b.n) - cfgN.has(a.n)) || b.count - a.count);
+      const seen = new Set(keys.map((k) => k.n));
+      for (const o of pool) { if (keys.length >= Math.max(AUTO_KEYS, pinned.length) || keys.length >= MAX_KEYS) break; if (!seen.has(o.n)) { keys.push(Object.assign({}, o, { pinned: false })); seen.add(o.n); } }
+    }
+    return keys.slice(0, MAX_KEYS);
   }
 
   const strength = {
     id: 'strength', title: 'Force', sub: 'Progression de tes exercices, records, force relative et volume par groupe musculaire.',
     html() {
       const S = SD.S;
-      return `${card('c12', 'st-mult', 'Exercices clés', 'e1RM estimé sur la période · clic pour afficher la progression', '', { icon: 'trophy', tone: 'strain', table: false, body: '<div class="multiples" id="st-mult-b"></div>' })}
+      return `${card('c12', 'st-mult', 'Exercices clés', 'e1RM estimé sur la période · clic pour afficher la progression', '<button type="button" class="btn sm" id="st-keyedit2">Choisir</button>', { icon: 'trophy', tone: 'strain', table: false, body: '<div class="multiples" id="st-mult-b"></div>' })}
+        <section class="card c12" id="st-keypanel" hidden><div class="card-h"><div><h2>${SD.ui.hic('pin', 'accent')}Exercices clés épinglés</h2><p class="sub" id="st-keypanel-s">Épingle les exercices à suivre en priorité : ils restent affichés quelle que soit la période. Utilisés aussi pour la force relative et l’indice de force.</p></div>
+          <div class="card-tools"><button type="button" class="link" id="st-keyreset">Tout désépingler</button><button type="button" class="btn" id="st-keydone">Terminé</button></div></div>
+          <div class="keytools"><input type="search" class="field" id="st-keyq" placeholder="Rechercher un exercice" aria-label="Rechercher un exercice"><label class="kchk"><input type="checkbox" id="st-keyfill"><span>Compléter avec les plus faits de la période<small>jusqu’à ${AUTO_KEYS} exercices clés</small></span></label></div>
+          <div class="keylist" id="st-keylist"></div><p class="note" id="st-keypanel-n"></p></section>
         ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { icon: 'trend', tone: 'strain', h: 'tall' })}
         <section class="card c4"><div class="card-h"><div><h2>${SD.ui.hic('dumbbell', 'strain')}<span id="st-card-t">Fiche exercice</span></h2><p class="sub" id="st-card-s"></p></div></div><div id="st-card-b"></div></section>
         ${card('c4', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire', '', { icon: 'gauge', tone: 'strain' })}
         ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés', '<button type="button" class="btn sm" id="st-keyedit">Exercices clés</button>', { icon: 'scale', tone: 'body' })}
-        <section class="card c12" id="st-keypanel" hidden><div class="card-h"><div><h2>${SD.ui.hic('list', 'accent')}Choisir les exercices clés</h2><p class="sub">Utilisés pour les exercices clés, la force relative et l’indice de force. Enregistré dans ce navigateur.</p></div>
-          <div class="card-tools"><button type="button" class="link" id="st-keyreset">Revenir à la configuration</button><button type="button" class="btn" id="st-keydone">Terminé</button></div></div><div class="keygrid" id="st-keylist"></div><p class="note" id="st-keypanel-n"></p></section>
         ${card('c4', 'st-pr', 'Records personnels', 'Records (e1RM au-dessus de tout l’historique de l’exercice) par mois', '', { icon: 'trophy', tone: 'accent' })}
         ${card('c6', 'st-mus', 'Volume par muscle', '', seg('musCount', [['frac', 'Fractionné'], ['full', 'Plein']], S.musCount || 'frac'), { icon: 'muscle', tone: 'strain', h: 'tall' })}
         ${card('c6', 'st-musw', 'Évolution par semaine', '', `<select class="fselect" id="st-mus-sel" data-state="musSel" aria-label="Muscle"></select>`, { icon: 'calendar', tone: 'strain', h: 'tall' })}
@@ -64,8 +86,18 @@
 
       // ---- petits multiples
       const keys = keyList(sumy);
-      setHTML('st-mult-b', keys.length ? keys.map((o) => `<button type="button" class="mult" data-ex="${esc(o.key)}" aria-pressed="${o.key === S.ex}"><span class="n" title="${esc(o.n)}">${esc(o.n)}</span><span class="v">${nf(o.last, 1)} kg</span><span class="n">${isNum(o.pct) ? `<span class="delta ${o.pct > 0.5 ? 'up-good' : o.pct < -0.5 ? 'down-bad' : 'flat'}">${sgn(o.pct, 1)} %</span> · ` : ''}${o.count} séances${o.prs ? ` · ${o.prs} PR` : ''}</span>${spark(o.spark, T.strain, 36)}</button>`).join('') : '<div class="empty">Aucun exercice détaillé sur la période. Les données par exercice couvrent févr. 2024 → avr. 2025 (TrainAI) et janv. 2026 → aujourd’hui (MacroFactor).</div>');
-      document.querySelectorAll('#st-mult-b .mult').forEach((btn) => { btn.onclick = () => { S.ex = btn.dataset.ex; SD.refresh(); }; });
+      const nPin = keys.filter((k) => k.pinned).length;
+      setText('st-mult-s', `e1RM estimé sur la période · ${nPin ? `${nPin} épinglé${nPin > 1 ? 's' : ''}${fillOn() ? ', complétés par les plus faits de la période' : ''}` : 'les plus faits de la période (épingle ceux que tu veux garder)'} · clic pour la progression`);
+      const pinBtn = (o) => `<span class="pinb" role="button" tabindex="0" data-pin="${esc(o.n)}" aria-pressed="${!!o.pinned}" title="${o.pinned ? 'Désépingler' : 'Épingler'}" aria-label="${o.pinned ? 'Désépingler' : 'Épingler'} ${esc(o.n)}">${SD.icon('pin')}</span>`;
+      setHTML('st-mult-b', keys.length ? keys.map((o) => o.missing
+        ? `<div class="mult missing">${pinBtn(o)}<span class="n" title="${esc(o.n)}">${esc(o.n)}</span><span class="v">—</span><span class="n">pas fait sur la période</span></div>`
+        : `<button type="button" class="mult${o.pinned ? ' pinned' : ''}" data-ex="${esc(o.key)}" aria-pressed="${o.key === S.ex}">${pinBtn(o)}<span class="n" title="${esc(o.n)}">${esc(o.n)}</span><span class="v">${nf(o.last, 1)} kg</span><span class="n">${isNum(o.pct) ? `<span class="delta ${o.pct > 0.5 ? 'up-good' : o.pct < -0.5 ? 'down-bad' : 'flat'}">${sgn(o.pct, 1)} %</span> · ` : ''}${o.count} séances${o.prs ? ` · ${o.prs} PR` : ''}</span>${spark(o.spark, T.strain, 36)}</button>`).join('') : '<div class="empty">Aucun exercice détaillé sur la période. Les données par exercice couvrent févr. 2024 → avr. 2025 (TrainAI) et janv. 2026 → aujourd’hui (MacroFactor).</div>');
+      const togglePin = (n) => { const cur = pins(); setPins(cur.includes(n) ? cur.filter((q) => q !== n) : cur.concat(n)); };
+      document.querySelectorAll('#st-mult-b .pinb').forEach((b) => {
+        b.onclick = (ev) => { ev.stopPropagation(); togglePin(b.dataset.pin); };
+        b.onkeydown = (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); togglePin(b.dataset.pin); } };
+      });
+      document.querySelectorAll('#st-mult-b .mult[data-ex]').forEach((btn) => { btn.onclick = () => { S.ex = btn.dataset.ex; SD.refresh(); }; });
 
       // ---- sélecteur
       const sel = document.getElementById('st-ex');
@@ -214,29 +246,44 @@
       }) : base(SD.emptyOpt('Aucun exercice détaillé sur la période')), () => ({ cols: ['Muscle', 'Directes / sem', 'Apport indirect / sem', 'Effectives / sem'], rows: mus.map((q) => [q.m, nf(q.direct, 1), nf(q.indirect, 1), nf(q.eff, 1)]) }));
       if (SD.charts.get('st-mus')) SD.charts.get('st-mus').resize();
 
-      // ---- éditeur des exercices clés
+      // ---- épingler les exercices clés : tout l'historique, les plus faits sur la période en premier
       const panel = document.getElementById('st-keypanel');
       const drawKeys = () => {
         const byName = new Map();
-        for (const o of M.exIndex.values()) { const c = byName.get(o.n) || { n: o.n, count: 0, last: o.last }; c.count += o.count; if (o.last > c.last) c.last = o.last; byName.set(o.n, c); }
-        const all = [...byName.values()].filter((o) => o.count >= 2).sort((a, b) => (b.last >= SD.addD(M.last, -60)) - (a.last >= SD.addD(M.last, -60)) || b.count - a.count);
-        const cur = new Set(keys.map((k) => k.n));
-        document.getElementById('st-keylist').innerHTML = all.map((o) => `<label class="kchk"><input type="checkbox" value="${esc(o.n)}"${cur.has(o.n) ? ' checked' : ''}><span>${esc(o.n)}<small>${o.count} séances · dernière ${esc(fdM(o.last))}</small></span></label>`).join('');
+        for (const o of M.exIndex.values()) { const c = byName.get(o.n) || { n: o.n, count: 0, last: o.last, per: 0 }; c.count += o.count; if (o.last > c.last) c.last = o.last; byName.set(o.n, c); }
+        for (const o of sumy) { const c = byName.get(o.n); if (c) c.per += o.count; }
+        const cur = pins();
+        const q = (document.getElementById('st-keyq') || {}).value || '';
+        const all = [...byName.values()].filter((o) => o.count >= 2 || cur.includes(o.n)).filter((o) => !q || o.n.toLowerCase().includes(q.toLowerCase()))
+          .sort((a, b) => (cur.includes(b.n) - cur.includes(a.n)) || b.per - a.per || b.count - a.count);
+        const row = (o) => `<label class="kchk"><input type="checkbox" value="${esc(o.n)}"${cur.includes(o.n) ? ' checked' : ''}><span>${esc(o.n)}<small>${o.per ? `${o.per} séance${o.per > 1 ? 's' : ''} sur la période · ` : 'pas fait sur la période · '}${o.count} au total · dernière ${esc(fdM(o.last))}</small></span></label>`;
+        // la période d'abord ; le reste de l'historique replié (déplié pendant une recherche)
+        const now = all.filter((o) => o.per || cur.includes(o.n)), old = all.filter((o) => !o.per && !cur.includes(o.n));
+        const kl = document.getElementById('st-keylist');
+        const wasOpen = !!(kl.querySelector('details.keyold') || {}).open;
+        kl.innerHTML = !all.length ? '<p class="note">Aucun exercice ne correspond.</p>'
+          : `${now.length ? `<div class="keygrid">${now.map(row).join('')}</div>` : '<p class="note">Aucun exercice fait sur la période ne correspond.</p>'}${old.length ? `<details class="keyold"${q || wasOpen ? ' open' : ''}><summary>Autres exercices de ton historique (${old.length})</summary><div class="keygrid">${old.map(row).join('')}</div></details>` : ''}`;
+        const fill = document.getElementById('st-keyfill');
+        if (fill) { fill.checked = fillOn(); fill.onchange = async () => { await SD.prefs.set('keyExFill', fill.checked); SD.refresh(); }; }
+        setText('st-keypanel-n', `${cur.length} épinglé${cur.length > 1 ? 's' : ''} (${MAX_KEYS} au plus) · ${SD.prefs.mode === 'db' ? 'partagé entre tes appareils' : 'enregistré dans ce navigateur'}.`);
         document.querySelectorAll('#st-keylist input').forEach((inp) => {
-          inp.onchange = () => {
-            const on = [...document.querySelectorAll('#st-keylist input:checked')].map((i) => i.value);
-            if (on.length > 10) { inp.checked = false; setText('st-keypanel-n', '10 exercices clés au maximum : décoche-en un d’abord.'); return; }
-            setText('st-keypanel-n', `${on.length} exercice${on.length > 1 ? 's' : ''} choisi${on.length > 1 ? 's' : ''}.`);
-            S.keyEx = on; SD.saveState();
+          inp.onchange = async () => {
+            const now = pins();
+            if (inp.checked && now.length >= MAX_KEYS) { inp.checked = false; setText('st-keypanel-n', `${MAX_KEYS} exercices épinglés au maximum : désépingle-en un d’abord.`); return; }
+            await setPins(inp.checked ? now.concat(inp.value) : now.filter((n) => n !== inp.value));
           };
         });
+        const qi = document.getElementById('st-keyq');
+        if (qi) qi.oninput = () => drawKeys();
       };
-      const ke = document.getElementById('st-keyedit');
-      if (ke) ke.onclick = () => { panel.hidden = !panel.hidden; if (!panel.hidden) { drawKeys(); panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } };
+      SD.PAGES.strength.drawKeys = () => { if (panel && !panel.hidden) drawKeys(); };
+      const openPanel = () => { panel.hidden = !panel.hidden; if (!panel.hidden) { drawKeys(); panel.scrollIntoView({ behavior: 'smooth', block: 'start' }); } };
+      for (const id of ['st-keyedit', 'st-keyedit2']) { const b = document.getElementById(id); if (b) b.onclick = openPanel; }
+      if (panel && !panel.hidden) drawKeys();
       const kd = document.getElementById('st-keydone');
       if (kd) kd.onclick = () => { panel.hidden = true; SD.refresh(); };
       const kr = document.getElementById('st-keyreset');
-      if (kr) kr.onclick = () => { S.keyEx = null; SD.saveState(); panel.hidden = true; SD.refresh(); };
+      if (kr) kr.onclick = () => setPins([]);
 
       // ---- évolution d'un muscle
       const msel = document.getElementById('st-mus-sel');

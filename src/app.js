@@ -360,9 +360,17 @@
   const clearLocal = () => idb('readwrite', (s) => s.delete('dataset')).catch(() => null);
   const stamp = (r) => String((r && (r.syncedAt || r.importedAt || r.generatedAt)) || '');
 
-  /** Enregistre un jeu de données fusionné ; sans `quiet`, recharge le dashboard dessus */
+  /**
+   * Enregistre un jeu de données fusionné ; sans `quiet`, recharge le dashboard dessus.
+   * `quiet === 'data'` : seule la feuille du journal a changé, on met à jour le journal sans tout recalculer.
+   */
   SD.persist = async (data, quiet) => {
     await saveLocal(data);
+    if (quiet === 'data') {
+      Object.assign(SD.M.raw, { jsheet: data.jsheet, notes: data.notes, sources: data.sources, syncedAt: data.syncedAt, version: data.version });
+      if (SD.onJournal) SD.onJournal();
+      return;
+    }
     if (quiet) { SD.M.raw.syncedAt = data.syncedAt; return; }
     reboot(data);
   };
@@ -459,6 +467,14 @@
     drop.addEventListener('drop', (e) => { const fs = [...(e.dataTransfer.files || [])]; if (fs.length) importFiles(fs, $('#ob-log')); });
   }
 
+  /** Préférences partagées arrivées ou modifiées : objectif en cours (phases), exercices clés, agendas */
+  SD.onPrefs = () => {
+    if (!SD.M) return;
+    SD.applyPhases(SD.M);
+    try { refresh(); } catch (e) { console.error(e); }
+    if (SD.cal && SD.cal.onPrefs) SD.cal.onPrefs();
+  };
+
   SD.onJournal = () => {
     if (!SD.M) return;
     if (['today', 'journal'].includes(S.page)) { try { SD.compute(); SD.PAGES[S.page].update(); SD.ui.clampSubs($('#view')); } catch (e) { console.error(e); } }
@@ -494,11 +510,15 @@
     }
     renderThemeSwitch();
 
+    const prefsReady = SD.prefs.init().catch(() => null); // lecture locale immédiate, base partagée ensuite
     const embedded = window.SD_DATA || null;
     const local = await loadLocal();
-    const raw = local && (!embedded || stamp(local) > stamp(embedded)) ? local : embedded;
+    // un jeu enregistré dans ce navigateur l'emporte s'il est plus récent, sauf s'il a été lu avec des règles plus anciennes
+    const ver = (r) => (r && r.version) || 1;
+    const raw = local && (!embedded || (stamp(local) > stamp(embedded) && ver(local) >= ver(embedded))) ? local : embedded;
     if (!raw || !raw.days || !raw.days.length) { onboarding(); return; }
     boot(raw);
+    prefsReady.then(() => SD.onPrefs());
     const hash = (location.hash || '').replace('#', '');
     showPage(SD.PAGES[hash] ? hash : S.page);
     SD.journal.init().then(() => SD.onJournal()).catch(() => null);

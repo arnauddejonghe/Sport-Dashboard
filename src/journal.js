@@ -118,7 +118,8 @@
       // les #hashtags du texte deviennent des tags
       const labels = {};
       for (const t of hashtags(body.text || '')) { const id = this.addTag(t.label) || t.id; if (!body.tags.includes(id)) body.tags.push(id); labels[id] = t.label; }
-      body = Object.assign({ d, updatedAt: new Date().toISOString() }, body, Object.keys(labels).length ? { tagLabels: labels } : {});
+      body = Object.assign({ d }, body, { updatedAt: new Date().toISOString() }, Object.keys(labels).length ? { tagLabels: labels } : {});
+      delete body.pushedAt;
       this.mirror(d, body);
       if (this.mode === 'db' && this.db) {
         try { await this.push(d, body); this.entries.set(d, body); return { ok: true, where: 'synchronisé' }; }
@@ -129,13 +130,44 @@
       try { const all = Object.fromEntries(this.entries); localStorage.setItem(LOCAL_KEY, JSON.stringify(all)); return { ok: true, where: 'sur cet appareil' }; }
       catch (e) { return { ok: false, where: '' }; }
     },
-    /** Copie vers la feuille Google (en arrière-plan) */
+    /** Copie vers la feuille Google (en arrière-plan) ; l'entrée garde la date de la dernière copie envoyée */
     mirror(d, body) {
-      if (!SD.drive || !SD.drive.pushJournal) return;
+      if (!SD.drive || !SD.drive.pushJournal) return Promise.resolve({ ok: false });
       const labels = this.labels();
-      SD.drive.pushJournal(d, Object.assign({}, body, { tagNames: (body.tags || []).map((t) => labels[t] || (body.tagLabels || {})[t] || t) }), this.painSites())
-        .then((r) => { this.sheetStatus = r.ok ? 'Copie envoyée à la feuille Google : intégrée par son script sous 5 minutes.' : r.msg; if (SD.onJournal) SD.onJournal(); })
-        .catch(() => null);
+      return SD.drive.pushJournal(d, Object.assign({}, body, { tagNames: (body.tags || []).map((t) => labels[t] || (body.tagLabels || {})[t] || t) }), this.painSites())
+        .then((r) => {
+          this.sheetStatus = r.ok ? 'Copie envoyée à la feuille Google : intégrée par son script sous 5 minutes.' : r.msg;
+          if (r.ok) {
+            const cur = this.entries.get(d);
+            if (cur && cur.updatedAt === body.updatedAt) {
+              const next = Object.assign({}, cur, { pushedAt: body.updatedAt });
+              this.entries.set(d, next);
+              if (this.mode === 'db' && this.db) this.push(d, next).catch(() => null);
+            }
+          }
+          if (SD.onJournal) SD.onJournal();
+          return r;
+        })
+        .catch(() => ({ ok: false }));
+    },
+    /**
+     * Synchro dans les deux sens, après chaque lecture de la feuille :
+     *  - feuille → dashboard : les lignes (ajoutées ou modifiées à la main) sont relues à chaque synchro Drive ;
+     *  - dashboard → feuille : une entrée dont la feuille n'a pas la dernière version est renvoyée (une fois par version).
+     */
+    pending() {
+      const out = [];
+      for (const [d, e] of this.entries) {
+        if (!e || !e.updatedAt) continue;
+        const s = this.sheetApp(d);
+        const inSheet = s && (Date.parse(s.mod || '') || 0) >= (Date.parse(e.updatedAt) || 0);
+        if (!inSheet) out.push({ d, e, sent: e.pushedAt === e.updatedAt });
+      }
+      return out.sort((a, b) => a.d.localeCompare(b.d));
+    },
+    async reconcile() {
+      if (!SD.drive || !SD.drive.inboxId) return;
+      for (const p of this.pending().filter((q) => !q.sent).slice(0, 10)) await this.mirror(p.d, p.e);
     },
 
     /** Formulaire du jour : note libre, tags, ressenti facultatif ; puis les autres sources du jour */

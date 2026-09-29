@@ -27,6 +27,7 @@
         ${this.state === 'consent' || this.state === 'idle' || this.state === 'error' || this.state === 'done' ? `<button type="button" class="btn" data-sync>${this.state === 'consent' ? 'Connecter Google Drive' : 'Synchroniser'}</button>` : ''}`;
       if (el) { el.className = 'sync ' + cls; el.innerHTML = html; el.hidden = this.state === 'hidden'; }
       if (top) { top.hidden = this.state === 'hidden'; top.className = 'pill' + (this.tone === 'warn' || this.tone === 'err' ? ' stale' : ''); top.innerHTML = `<span class="dot" style="${this.tone === 'busy' ? 'background:var(--strain)' : ''}"></span>Drive · <b>${SD.esc(this.short || '')}</b>`; }
+      if (SD.S && SD.S.page === 'journal' && SD.PAGES.journal && SD.PAGES.journal.renderSheet) { try { SD.PAGES.journal.renderSheet(); } catch (e) { /* page en cours de rendu */ } }
       const dp = document.getElementById('sync-page');
       if (dp) dp.innerHTML = html ? `<div class="sync ${cls}" style="border:0;padding:0;background:none">${html}</div>` : '<p class="note">La synchronisation Google Drive fonctionne quand le dashboard est ouvert dans claude.ai.</p>';
     },
@@ -67,7 +68,7 @@
           if (!this.rootId) { const f = await this.list(`title = '${folderName.replace(/'/g, "\\'")}' and mimeType = '${MIME.folder}'`); this.rootId = f[0] && f[0].id; }
           const subs = this.rootId ? await this.list(`parentId = '${this.rootId}' and mimeType = '${MIME.folder}'`) : [];
           const ib = subs.find((f) => /^journal\s*-\s*entr[ée]es$/i.test(f.title));
-          if (!ib) return { ok: false, msg: 'Dossier « Journal - entrées » introuvable : exécute une fois setup() du script de la feuille (voir page Données).' };
+          if (!ib) return { ok: false, msg: 'Enregistré dans le dashboard. Copie vers la feuille Google pas encore active : installe son script une fois (page Journal, « Feuille Google »).' };
           this.inboxId = ib.id;
         }
         const q = (v) => { const t = v == null ? '' : String(v); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
@@ -142,27 +143,33 @@
         this.rootId = root.id;
         let files = await this.list(`parentId = '${root.id}'`);
         const inbox = files.find((f) => f.mimeType === MIME.folder && /^journal\s*-\s*entr[ée]es$/i.test(f.title));
-        if (inbox) this.inboxId = inbox.id;
+        this.inboxId = inbox ? inbox.id : null;
+        this.inboxChecked = true;
         for (const sub of files.filter((f) => f.mimeType === MIME.folder && !/photo/i.test(f.title) && f !== inbox)) {
           files = files.concat(await this.list(`parentId = '${sub.id}'`));
         }
-        // sélection : fichiers reconnus, nouveaux ou modifiés depuis la dernière synchro / le build
+        // sélection : fichiers reconnus, nouveaux ou modifiés depuis la dernière synchro / le build.
+        // Jeu lu avec des règles plus anciennes (version) : tous les fichiers reconnus sont relus.
         const raw = SD.M.raw;
-        const since = raw.syncedAt || raw.generatedAt || '1970';
+        const upgrade = (raw.version || 1) < (P.DATA_VERSION || 1);
+        const since = upgrade ? '1970' : raw.syncedAt || raw.generatedAt || '1970';
         const norm = (n) => String(n || '').replace(/\.(csv|xlsx|md)$/i, '').trim().toLowerCase();
-        const known = new Map(raw.sources.map((s) => [norm(s.fileName), s]));
+        const known = upgrade ? new Map() : new Map(raw.sources.map((s) => [norm(s.fileName), s]));
         const candidates = [];
         const coachBest = new Map();
         const ignored = [];
+        this.sheet = null;
         for (const f of files) {
           const kind = this.classify(f);
+          if (kind === 'notes' && (!this.sheet || f.mimeType === MIME.sheet)) this.sheet = { id: f.id, title: f.title, modifiedTime: f.modifiedTime, url: f.viewUrl || null };
           if (!kind) {
             // fichier de données non reconnu : on le signale au lieu de l'ignorer en silence
             if (f.mimeType !== MIME.folder && (/\.(csv|xlsx|xls|json|md|txt)$/i.test(f.title || '') || f.mimeType === MIME.sheet)) ignored.push(f.title);
             continue;
           }
           const k = known.get(norm(f.title));
-          const changed = !k || (f.modifiedTime && f.modifiedTime > since && (!k.modifiedTime || f.modifiedTime > k.modifiedTime));
+          // la feuille du journal est relue à chaque synchro : des lignes y sont ajoutées à la main, sans passer par le dashboard
+          const changed = kind === 'notes' || !k || (f.modifiedTime && f.modifiedTime > since && (!k.modifiedTime || f.modifiedTime > k.modifiedTime));
           if (!changed) continue;
           if (kind === 'coach') {
             const info = P.coachFileInfo(f.title);
@@ -180,7 +187,7 @@
         candidates.sort((a, b) => String(a.f.modifiedTime).localeCompare(String(b.f.modifiedTime)));
         const todo = candidates.slice(-MAX_FILES);
         const ign = ignored.length ? ` · Non reconnu${ignored.length > 1 ? 's' : ''} : ${ignored.slice(0, 3).join(', ')}${ignored.length > 3 ? '…' : ''}` : '';
-        if (!todo.length) {
+        if (!todo.length && !upgrade) {
           const now = new Date().toISOString();
           this.lastSync = now;
           await SD.persist(Object.assign({}, raw, { syncedAt: now }), true);
@@ -226,8 +233,17 @@
         const merged = P.overlayDataset(raw, add);
         merged.config = raw.config;
         merged.syncedAt = new Date().toISOString();
+        if (upgrade && !errors.length) merged.version = P.DATA_VERSION;
+        // uniquement la feuille du journal, sans changement : pas de message « nouveaux fichiers »
+        const onlySheet = parts.every((q) => q.kind === 'notes');
         this.lastSync = merged.syncedAt;
-        await SD.persist(merged);
+        this.sheetSyncedAt = parts.some((q) => q.kind === 'notes') ? merged.syncedAt : this.sheetSyncedAt;
+        await SD.persist(merged, onlySheet && !upgrade ? 'data' : false);
+        if (SD.journal && SD.journal.reconcile) SD.journal.reconcile().catch(() => null);
+        if (onlySheet && !upgrade) {
+          this.set('done', errors.length || ignored.length ? 'warn' : 'ok', `À jour : feuille du journal relue, aucun nouvel export dans « ${folderName} ».`, 'à jour', `Vérifié ${new Date().toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${ign}`);
+          return;
+        }
         this.set('done', errors.length || ignored.length ? 'warn' : 'ok', `${parts.length} fichier${parts.length > 1 ? 's' : ''} importé${parts.length > 1 ? 's' : ''} depuis « ${folderName} » : ${parts.map((p) => p.fileName).slice(0, 3).join(', ')}${parts.length > 3 ? '…' : ''}.`, errors.length ? `${parts.length} importés, ${errors.length} erreurs` : `${parts.length} nouveaux`, (errors.length ? errors.slice(0, 3).join(' · ') : `Données jusqu’au ${SD.fdM(merged.coverage.to)}`) + ign);
       } catch (e) {
         const [msg, short] = this.explain(e);
