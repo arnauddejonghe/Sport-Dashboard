@@ -174,8 +174,16 @@
       const c = SD.journal && SD.journal.combined ? SD.journal.combined(d) : null;
       if (c) for (const [k, v] of Object.entries(c.pain || {})) if (isNum(v) && !(k in pains)) pains[k] = v;
     }
-    const legs = slot && !slot.rest && /leg|lower|jambe|bas/i.test(slot.day);
-    const painHits = Object.entries(pains).filter(([k, v]) => v >= 4 && (/lomb|dos/i.test(k) || (/genou|knee|hanche/i.test(k) && legs)));
+    // zones libres : rattachées au bas du corps, au haut du corps ou au dos d'après leur nom ; une zone inconnue compte
+    // dès qu'une séance est prévue, le dos toujours
+    const train = !!(slot && !slot.rest);
+    const legs = train && /leg|lower|jambe|bas|full/i.test(slot.day);
+    const upper = train && /upper|push|pull|haut|full|bras|torse/i.test(slot.day);
+    const BACK = /lomb|dos|rein|sacr|coccyx/i;
+    const LOWER = /genou|knee|hanche|cheville|pied|mollet|ischio|quadri|cuisse|adduct|fess|aine|achille/i;
+    const UPPER = /[ée]paule|coude|poignet|avant-bras|bras|biceps|triceps|pec|nuque|\bcou\b|trap[èe]ze|omoplate|main|doigt/i;
+    const relevant = (k) => (BACK.test(k) ? true : LOWER.test(k) ? legs : UPPER.test(k) ? upper : train);
+    const painHits = Object.entries(pains).filter(([k, v]) => v >= 4 && relevant(k));
     if (painHits.length) { lvl = Math.max(lvl, 1); reasons.push(painHits.map(([k, v]) => `${k.toLowerCase()} ${v}/10`).join(', ')); }
     const LV = [
       ['go', 'Feu vert', 'Séance complète : vise le haut des fourchettes au RIR prévu.'],
@@ -216,11 +224,9 @@
   }
 
   // ---------------------------------------------------------------- nutrition, hydratation, sommeil
+  /** Cible nutrition MacroFactor du jour (voir buildTargets dans core.js : cible réelle, programme ou dernière connue) */
   function nutritionFor(M, d) {
-    const wd = SD.wdOf(d);
-    let best = null;
-    for (const t of M.raw.targets || []) if (t.d <= d && (!best || t.d >= best.d) && t.wd === (wd + 1) % 7) best = t;
-    return best;
+    return M.targetOf ? M.targetOf(d) : null;
   }
   function sleepTonight(M, today, trainDay) {
     const xt = M.at(today) && isNum(M.at(today).sleepBase) ? M.at(today) : M.at(M.lastComplete);
@@ -239,22 +245,23 @@
   // ---------------------------------------------------------------- agenda
   const hm = (dt) => dt.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
   const atTime = (d, t) => { const [h, m] = String(t).split(':').map(Number); const x = new Date(d + 'T00:00:00'); x.setHours(h, m || 0, 0, 0); return x; };
-  /** Créneaux libres d'au moins `need` minutes entre dayStart et dayEnd (événements minutés, marqués occupés) */
+  /** Créneaux libres d'au moins `need` minutes entre dayStart et dayEnd (événements minutés, marqués occupés, hors longues plages) */
   function freeSlots(events, d, need, cfg) {
     const s0 = atTime(d, cfg.dayStart), e0 = atTime(d, cfg.dayEnd);
     let from = s0;
     if (d === todayLocal()) { const now = new Date(); now.setMinutes(Math.ceil(now.getMinutes() / 15) * 15, 0, 0); if (now > from) from = now; }
-    const busy = (events || []).filter((e) => !e.allDay && e.busy && e.end > s0 && e.start < e0).map((e) => [e.start, e.end]).sort((a, b) => a[0] - b[0]);
+    const busy = (events || []).filter((e) => !e.allDay && !e.long && e.busy && !e.training && e.end > s0 && e.start < e0).map((e) => [e.start, e.end]).sort((a, b) => a[0] - b[0]);
     const out = [];
     let t = from;
     for (const [a, b] of busy) { if (a - t >= need * 60000) out.push([new Date(t), new Date(a)]); if (b > t) t = b; }
     if (e0 - t >= need * 60000) out.push([new Date(t), e0]);
     return out;
   }
-  /** Heure de début habituelle : médiane de tes séances (TrainAI), sinon configuration */
+  /** Heure de début habituelle : configuration, sinon tes séances placées dans l'agenda, sinon TrainAI, sinon 18 h */
   function usualStart(M) {
     const h = (M.raw.sessionStarts || []).slice(-60).map((s) => s.h).filter(isNum);
-    return M.cfg.plan && M.cfg.plan.preferredStart ? M.cfg.plan.preferredStart : h.length >= 10 ? `${String(median(h)).padStart(2, '0')}:00` : '18:00';
+    const cal = SD.cal && SD.cal.usualStart ? SD.cal.usualStart() : null;
+    return M.cfg.plan && M.cfg.plan.preferredStart ? M.cfg.plan.preferredStart : cal || (h.length >= 10 ? `${String(median(h)).padStart(2, '0')}:00` : '18:00');
   }
   function suggestSlot(M, events, d, dur) {
     const cfg = Object.assign({ dayStart: '06:30', dayEnd: '21:30', travelMin: 20 }, M.cfg.plan || {});

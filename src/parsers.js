@@ -235,8 +235,8 @@
     if (!name) return null;
     let m = String(name).match(/\((\d{4}-\d{2}-\d{2})[ T](\d{2})-(\d{2})-(\d{2})\)/);
     if (m) return `${m[1]}T${m[2]}:${m[3]}:${m[4]}`;
-    m = String(name).match(/(\d{4}-\d{2}-\d{2})T(\d{2})[:_-](\d{2})[:_-](\d{2})/);
-    if (m) return `${m[1]}T${m[2]}:${m[3]}:${m[4]}`;
+    m = String(name).match(/(\d{4}-\d{2}-\d{2})T(\d{2})[:_-](\d{2})[:_-](\d{2})(?:[.,]\d+)?(Z?)/);
+    if (m) return `${m[1]}T${m[2]}:${m[3]}:${m[4]}${m[5] ? 'Z' : ''}`; // Z : heure UTC (raccourci Apple), convertie à l'affichage
     m = String(name).match(/(?:^|\D)(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\D|$)/); // MacroFactor-20260924104745
     if (m && +m[2] >= 1 && +m[2] <= 12 && +m[3] >= 1 && +m[3] <= 31 && +m[4] < 24) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}`;
     m = String(name).match(/(\d{4}-\d{2}-\d{2})/);
@@ -255,6 +255,37 @@
     return out;
   }
 
+  // ---------------------------------------------------------------- Douleurs : « zone intensité », zones libres
+  /** « épaule droite », « Douleur à la cheville gauche : » -> « Épaule droite », « Cheville gauche » */
+  function normZone(z) {
+    const t = String(z == null ? '' : z)
+      .replace(/^\s*douleurs?\b\s*(?:(?:au|aux|du|des|de la|de l['’]|à la|à l['’]|a la|d['’])\s*)?/i, '')
+      .replace(/[\s:=(\-–—·]+$/, '').replace(/^[\s:=(\-–—·]+/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  }
+  /**
+   * Colonne « Douleurs » : « épaule droite 3, cheville gauche 2/10 ; lombaires: 3 » -> { 'Épaule droite': 3, 'Cheville gauche': 2, Lombaires: 3 }.
+   * Séparateurs : point-virgule, retour à la ligne, ou virgule suivie d'un nom de zone (« 4,5 » reste un nombre).
+   * Un nombre seul -> douleur « Générale ». Une zone sans intensité est ignorée (elle reste dans la note).
+   */
+  function parsePains(cell) {
+    const out = {};
+    const txt = String(cell == null ? '' : cell).trim();
+    if (!txt || txt === '-') return out;
+    for (const part of txt.split(/\s*;\s*|\n+|,(?=\s*[^\d\s])/)) {
+      const m = part.trim().match(/^(.*?)[\s:=(]*(\d{1,2}(?:[.,]\d)?)\s*(?:\/\s*10)?\s*\)?\s*$/);
+      if (!m) continue;
+      const v = parseFloat(m[2].replace(',', '.'));
+      if (!isFinite(v)) continue;
+      out[normZone(m[1]) || 'Générale'] = Math.max(0, Math.min(10, v));
+    }
+    return out;
+  }
+  /** { 'Épaule droite': 3, Lombaires: 3 } -> « Épaule droite 3, Lombaires 3 » (colonne « Douleurs » de la feuille) */
+  function formatPains(pain) {
+    return Object.entries(pain || {}).filter(([k, v]) => k && v != null && v !== '' && isFinite(+v)).map(([k, v]) => `${k} ${+v}`).join(', ');
+  }
+
   /**
    * Journal libre (feuille Google ou CSV) : « Date,Notes » ou colonnes au choix parmi
    * Date, Heure, Note/Notes/Texte, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>.
@@ -262,7 +293,8 @@
    */
   /**
    * Journal (feuille Google « Retours… » ou CSV) : une ligne par entrée, plusieurs par jour possibles.
-   * Colonnes reconnues (ordre libre) : Date, Heure, Source, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>, Modifié.
+   * Colonnes reconnues (ordre libre) : Date, Heure, Source, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleurs, Modifié.
+   * « Douleurs » : liste libre « zone intensité » (voir parsePains) ; les anciennes colonnes « Douleur <zone> » restent lues.
    * Source « app » = entrée saisie dans le dashboard (une par jour) ; les autres (manuel, raccourci, make…) s'ajoutent.
    */
   function parseNotesCSV(text, fileName) {
@@ -273,7 +305,9 @@
     const iD = find(/^(date|jour)$/), iN = find(/^(notes?|texte|commentaires?|ressenti)$/), iTg = find(/^(tags?|[ée]tiquettes?)$/);
     const iSrc = find(/^source$/), iH = find(/^(heure|time)$/), iMod = find(/^(modifi[ée]|updated|mis [àa] jour)/);
     const SC = { mood: find(/^humeur|^mood/), energy: find(/^[ée]nergie|^energy/), stress: find(/^stress/), soreness: find(/^courbature|^soreness/) };
-    const pains = hdr.map((h, i) => [h, i]).filter(([h]) => /^douleur/.test(h)).map(([h, i]) => [h.replace(/^douleurs?\s*/, '').replace(/^./, (c) => c.toUpperCase()) || 'Générale', i]);
+    // « Douleurs » (ou « Douleur ») : liste libre ; « Douleur genou », « Douleur lombaires » : une colonne par zone (ancien format)
+    const iPainList = find(/^douleurs?$/);
+    const pains = hdr.map((h, i) => [h, i]).filter(([h]) => /^douleurs?\s+\S/.test(h)).map(([h, i]) => [normZone(h) || 'Générale', i]);
     const notes = [];
     const byDay = {};
     for (let r = 1; r < rows.length; r++) {
@@ -286,14 +320,15 @@
       const rec = { src, time: iH >= 0 ? String(row[iH] || '').slice(0, 5) : '', text: t, tags: [], tagLabels: {}, pain: {}, mod: iMod >= 0 ? String(row[iMod] || '').trim() : '' };
       for (const x of tg) if (!rec.tags.includes(x.id)) { rec.tags.push(x.id); rec.tagLabels[x.id] = x.label; }
       for (const [k, i] of Object.entries(SC)) { const v = i >= 0 ? num(row[i]) : null; if (v != null) rec[k] = Math.max(1, Math.min(5, Math.round(v))); }
+      if (iPainList >= 0) Object.assign(rec.pain, parsePains(row[iPainList]));
       for (const [site, i] of pains) { const v = num(row[i]); if (v != null) rec.pain[site] = Math.max(0, Math.min(10, v)); }
       const empty = !rec.text && !rec.tags.length && !Object.keys(rec.pain).length && !['mood', 'energy', 'stress', 'soreness'].some((k) => rec[k] != null);
       if (empty) continue;
-      if (t && src !== 'app') notes.push({ d, src: 'journal', text: t });
+      if (t && src !== 'app') notes.push({ d, src: 'journal', text: t, file: fileName });
       (byDay[d] || (byDay[d] = [])).push(rec);
     }
     const jentries = Object.entries(byDay).map(([d, rs]) => {
-      const e = { d, text: rs.map((x) => x.text).filter(Boolean).join(' · '), tags: [], tagLabels: {}, pain: {}, src: 'feuille', rows: rs };
+      const e = { d, text: rs.map((x) => x.text).filter(Boolean).join(' · '), tags: [], tagLabels: {}, pain: {}, src: 'feuille', rows: rs, file: fileName };
       for (const x of rs) {
         for (const id of x.tags) if (!e.tags.includes(id)) { e.tags.push(id); e.tagLabels[id] = x.tagLabels[id]; }
         for (const k of ['mood', 'energy', 'stress', 'soreness']) if (x[k] != null) e[k] = x[k];
@@ -301,7 +336,8 @@
       }
       return e;
     });
-    return { kind: 'notes', fileName, notes, jentries };
+    // feuille encore à l'ancien format (une colonne par zone de douleur) : le dashboard propose de mettre le script à jour
+    return { kind: 'notes', fileName, notes, jentries, legacyPains: pains.length > 0 };
   }
 
   // ---------------------------------------------------------------- Rapports du coach (.md)
@@ -551,7 +587,8 @@
     if (qe) {
       const h = qe[0];
       const col = { tdee: /^Expenditure/i, trend: /^Trend Weight/i, weight: /^Weight/i, kcal: /^Calories/i, prot: /^Protein/i, fat: /^Fat \(/i, carb: /^Carbs/i,
-        mfSteps: /^Steps/i, alcohol: /^Alcohol/i, fiber: /^Fiber/i, sodium: /^Sodium/i, sugar: /^Sugars? \(/i, caffeine: /^Caffeine/i, water: /^Water/i };
+        mfSteps: /^Steps/i, alcohol: /^Alcohol/i, fiber: /^Fiber/i, sodium: /^Sodium/i, sugar: /^Sugars? \(/i, caffeine: /^Caffeine/i, water: /^Water/i,
+        tKcal: /^Target Calories/i, tProt: /^Target Protein/i, tFat: /^Target Fat/i, tCarb: /^Target Carbs/i };
       const idx = Object.fromEntries(Object.entries(col).map(([k, re]) => [k, colIndex(h, re)]));
       for (let r = 1; r < qe.length; r++) {
         const d = toISODate(qe[r][0], XLSX);
@@ -566,6 +603,8 @@
           Object.assign(o, { kcal: r1(v('kcal'), 0), prot: r1(v('prot')), fat: r1(v('fat')), carb: r1(v('carb')) });
           for (const k of ['alcohol', 'fiber', 'sodium', 'sugar', 'caffeine', 'water']) if (v(k) != null) o[k] = r1(v(k), 1);
         }
+        // cible du jour telle que MacroFactor l'affichait (renseignée seulement les jours loggés)
+        if (v('tKcal') != null && v('tKcal') > 0) o.mfTgt = { kcal: r1(v('tKcal'), 0), prot: r1(v('tProt'), 0), fat: r1(v('tFat'), 0), carb: r1(v('tCarb'), 0) };
       }
     }
     // Journal alimentaire : heure du dernier repas (et totaux du jour si l'export n'a pas de résumé quotidien)
@@ -623,12 +662,14 @@
     if (nps) {
       const h = nps[0];
       const iD = colIndex(h, /^Program Update Date/i), iW = colIndex(h, /^Program Weekday/i);
-      const iK = colIndex(h, /^Calories/i), iF = colIndex(h, /^Fat/i), iP = colIndex(h, /^Protein/i), iC = colIndex(h, /^Carbs/i);
+      const iK = colIndex(h, /^Calories/i), iF = colIndex(h, /^Fat/i), iP = colIndex(h, /^Protein/i), iC = colIndex(h, /^Carbs/i), iE = colIndex(h, /^Expenditure/i);
       for (let r = 1; r < nps.length; r++) {
         const d = toISODate(nps[r][iD], XLSX);
         const wd = WEEKDAYS_EN.indexOf(String(nps[r][iW]).trim());
         if (!d || wd < 0) continue;
-        targets.push({ d, wd, kcal: nps[r][iK], fat: nps[r][iF], prot: nps[r][iP], carb: nps[r][iC] });
+        const t = { d, wd, kcal: nps[r][iK], fat: nps[r][iF], prot: nps[r][iP], carb: nps[r][iC] };
+        if (iE >= 0 && typeof nps[r][iE] === 'number') t.exp = r1(nps[r][iE], 0);
+        targets.push(t);
       }
     }
 
@@ -934,6 +975,8 @@
     'Core Training': 'Gainage', 'Cooldown': 'Retour au calme', 'Dance': 'Danse',
   };
   const STRENGTH = new Set(['Musculation', 'Renfo fonctionnel']);
+  // version des règles de lecture : un jeu de données plus ancien est relu depuis ses fichiers (synchro Drive)
+  const DATA_VERSION = 2;
   // durée au-delà de laquelle une séance de musculation est un chrono oublié
   const MAX_STRENGTH_MIN = 180;
 
@@ -955,7 +998,7 @@
     const healthOwner = {};
     const workoutsByDate = {};
     for (const p of byKind('health')) {
-      const exportDay = p.exportedAt ? p.exportedAt.slice(0, 10) : null;
+      const exportDay = p.exportedAt ? (/Z$/.test(p.exportedAt) ? new Date(p.exportedAt).toLocaleDateString('sv-SE') : p.exportedAt.slice(0, 10)) : null;
       for (const [d, v] of Object.entries(p.days)) {
         days[d] = Object.assign({ d }, v);
         // le jour de l'export n'est pas terminé : exclu des moyennes
@@ -987,8 +1030,11 @@
           for (const k of ['kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'water']) if (v[k] != null) day[k] = v[k];
           day.nutriSrc = 'MF';
         }
-        if (day.steps == null && v.mfSteps != null) day.steps = v.mfSteps;
+        // pas : Apple Santé d'abord ; à défaut ceux de MacroFactor, le dernier export l'emportant (le jour peut avoir été exporté en cours)
+        if (v.mfSteps != null && (day.steps == null || day.stepsSrc === 'MF')) { day.steps = v.mfSteps; day.stepsSrc = 'MF'; }
+        if (v.mfSteps != null) day.mfSteps = v.mfSteps; // total du jour vu par MacroFactor (complète le jour d'un export Santé)
         if (v.lastMeal != null) day.lastMeal = v.lastMeal;
+        if (v.mfTgt) day.mfTgt = v.mfTgt;
       }
       if (mf.exercises.length) { const r = span(mf.exercises); exercises = exercises.filter(outside(r)).concat(mf.exercises); }
       if (mf.muscles.length) { const r = span(mf.muscles); muscles = muscles.filter(outside(r)).concat(mf.muscles); }
@@ -1112,11 +1158,11 @@
         : p.kind === 'trainai' ? p.sessions.map((s) => s.d) : p.kind === 'coach' ? p.entries.map((e) => e.d)
         : p.kind === 'labs' ? p.labs.map((l) => l.d) : (p.notes || []).map((n) => n.d);
       for (const d of ds) { if (!from || d < from) from = d; if (!to || d > to) to = d; n++; }
-      return { kind: p.kind, fileName: p.fileName, exportedAt: p.exportedAt || null, from, to, n, driveId: p.driveId, modifiedTime: p.modifiedTime };
+      return Object.assign({ kind: p.kind, fileName: p.fileName, exportedAt: p.exportedAt || null, from, to, n, driveId: p.driveId, modifiedTime: p.modifiedTime }, p.legacyPains ? { legacyPains: true } : {});
     });
 
     return {
-      version: 1,
+      version: DATA_VERSION,
       generatedAt: new Date().toISOString(),
       lastExport,
       profile,
@@ -1176,7 +1222,7 @@
     const mMusR = spanOf(add.muscles || []);
 
     const byDate = new Map(base.days.map((x) => [x.d, Object.assign({}, x)]));
-    const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'water', 'lastMeal', 'nutriSrc'];
+    const MF_KEYS = ['weight', 'weightSrc', 'bodyFat', 'trend', 'tdee', 'kcal', 'prot', 'carb', 'fat', 'fiber', 'alcohol', 'sodium', 'sugar', 'caffeine', 'water', 'lastMeal', 'nutriSrc', 'mfTgt', 'mfSteps', 'stepsSrc'];
     for (const n of add.days) {
       const old = byDate.get(n.d) || { d: n.d };
       let merged;
@@ -1199,15 +1245,20 @@
       mfSeen.add(w.d);
       return true;
     });
+    // feuille du journal : c'est la référence éditable. Un nouvel export la remplace entièrement (lignes modifiées ou
+    // supprimées à la main comprises) ; les entrées sans fichier d'origine viennent d'anciens imports de la même feuille.
+    const noteFiles = new Set(add.sources.filter((s) => s.kind === 'notes').map((s) => s.fileName));
+    const fromSheet = (e) => (e.file ? noteFiles.has(e.file) : noteFiles.size > 0);
     const noteKey = (n) => n.d + '|' + n.text;
-    const notes = new Map(base.notes.map((n) => [noteKey(n), n]));
+    const notes = new Map(base.notes.filter((n) => !(n.src === 'journal' && fromSheet(n))).map((n) => [noteKey(n), n]));
     for (const n of add.notes) notes.set(noteKey(n), n);
     const days = Array.from(byDate.values()).sort((a, b) => a.d.localeCompare(b.d));
     return Object.assign({}, base, {
       generatedAt: add.generatedAt,
       lastExport: [base.lastExport, add.lastExport].filter(Boolean).sort().pop() || null,
       profile: add.profile || base.profile,
-      sources: base.sources.concat(add.sources.map((s) => Object.assign({ imported: true }, s))),
+      // un fichier relu (feuille du journal à chaque synchro, export réimporté) remplace son ancienne fiche au lieu de s'y ajouter
+      sources: base.sources.filter((s) => !add.sources.some((a) => a.kind === s.kind && a.fileName === s.fileName)).concat(add.sources.map((s) => Object.assign({ imported: true }, s))),
       coverage: { health: base.coverage.health, from: days[0].d, to: days[days.length - 1].d },
       days,
       workouts: workouts.sort((a, b) => a.d.localeCompare(b.d)),
@@ -1220,7 +1271,7 @@
       notes: Array.from(notes.values()).sort((a, b) => a.d.localeCompare(b.d)),
       coach: mergeCoach(base.coach || [], add.coach || []),
       labs: mergeLabs(base.labs || [], add.labs || []),
-      jsheet: (() => { const m = new Map((base.jsheet || []).map((e) => [e.d, e])); for (const e of add.jsheet || []) m.set(e.d, e); return [...m.values()].sort((a, b) => a.d.localeCompare(b.d)); })(),
+      jsheet: (() => { const m = new Map((base.jsheet || []).filter((e) => !fromSheet(e)).map((e) => [e.d, e])); for (const e of add.jsheet || []) m.set(e.d, e); return [...m.values()].sort((a, b) => a.d.localeCompare(b.d)); })(),
       program: add.program || base.program || null,
       mfSessions: (() => { const m = new Map((base.mfSessions || []).map((e) => [e.d, e])); for (const e of add.mfSessions || []) m.set(e.d, e); return [...m.values()].sort((a, b) => a.d.localeCompare(b.d)); })(),
       sessionStarts: tR ? base.sessionStarts.filter((s) => !inR(s.d, tR)).concat(add.sessionStarts) : base.sessionStarts,
@@ -1229,7 +1280,7 @@
 
   return {
     parseCSV, parseHealthCSV, parseNotesCSV, parseCoachMD, parseLabsCSV, parseMacroFactor, parseTrainAI, parseFile, mergeParsed, overlayDataset,
-    coachFileInfo, cleanSensitive, maskSensitive, setPrivacyTerms, tagsFrom, slugTag, isPairDB, cleanExName,
+    coachFileInfo, cleanSensitive, maskSensitive, setPrivacyTerms, tagsFrom, slugTag, parsePains, formatPains, normZone, isPairDB, cleanExName, DATA_VERSION,
     isMacroFactor, isTrainAI, exportDateFromName,
     _internal: { num, range, duration, toISODate, epley },
   };

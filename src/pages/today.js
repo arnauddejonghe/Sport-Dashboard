@@ -1,10 +1,10 @@
-/* Page « Bilan quotidien » : la dernière journée complète (ou le jour choisi), note du jour en tête,
+/* Page « Bilan quotidien » : la dernière journée notée (ou le jour choisi), note du jour en tête,
  * récupération, sommeil et charge comparés à ta norme, biomarqueurs, nutrition, journal rapide. */
 (function () {
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fH, fHM, fdL, fdS, fdM, esc, addD, typeColor, STRENGTH, chart, base, tipBox, xCat, yVal, bar, line, ring, rangeBar } = SD;
-  const { card, setHTML, setText } = SD.ui;
+  const { card, hic, setHTML, setText } = SD.ui;
 
   const BM_TODAY = [
     ['hrv', 'HRV (indicative)', 'ms', 0, 1],
@@ -32,18 +32,24 @@
   }
   SD.relDay = relDay;
 
-  /** Phrase de synthèse de la journée à partir des composantes de la note */
+  /** Liste lisible : « a », « a et b », « a, b et c » */
+  const andList = (a) => (a.length > 1 ? `${a.slice(0, -1).join(', ')} et ${a[a.length - 1]}` : a.join(''));
+
+  /** Phrase de synthèse de la journée à partir des composantes de la note (les composantes non mesurées sont nommées) */
   function dayVerdict(ds, parts) {
     if (!isNum(ds)) return 'Pas assez de mesures ce jour-là pour noter la journée.';
     const lead = ds >= 85 ? 'Excellente journée' : ds >= 70 ? 'Bonne journée' : ds >= 55 ? 'Journée moyenne' : 'Journée difficile';
     const av = parts.filter((p) => isNum(p.v)).sort((a, b) => b.v - a.v);
-    if (av.length < 2) return lead + '.';
+    const na = parts.filter((p) => !isNum(p.v)).map((p) => p.l.toLowerCase());
+    const tail = na.length ? ` Note provisoire\u00a0: ${andList(na)} ${na.length > 1 ? 'manquent' : 'manque'}.` : '';
+    if (av.length < 2) return lead + '.' + tail;
     const best = av[0], worst = av[av.length - 1];
-    return worst.v >= 75 ? `${lead}\u00a0: tout est au vert, ${best.l.toLowerCase()} en tête.` : `${lead}\u00a0: ${best.l.toLowerCase()} solide, ${worst.l.toLowerCase()} à travailler.`;
+    return (worst.v >= 75 ? `${lead}\u00a0: ${na.length ? 'tout ce qui est mesuré est' : 'tout est'} au vert, ${best.l.toLowerCase()} en tête.` : `${lead}\u00a0: ${best.l.toLowerCase()} solide, ${worst.l.toLowerCase()} à travailler.`) + tail;
   }
 
   const P = () => SD.plan;
-  const ZC = (T) => ({ light: 'rgba(46,155,255,0.35)', mod: 'rgba(46,155,255,0.58)', sus: 'rgba(46,155,255,0.8)', high: T.strain });
+  // zones d'effort : rampe ordinale d'une seule teinte (légère → élevée), tokens du thème
+  const ZC = (T) => ({ light: T.zone[0], mod: T.zone[1], sus: T.zone[2], high: T.zone[3] });
   const zoneLabel = (z) => (z ? SD.scores.EFF_LABEL[z] : '—');
   const dayName = (d) => SD.fdate(d, { weekday: 'long', day: 'numeric', month: 'long' });
   const DAY_FR = { upper: 'Haut du corps', lower: 'Bas du corps', pull: 'Tirage', push: 'Poussée', legs: 'Jambes', rest: 'Repos' };
@@ -71,26 +77,27 @@
     noFilters: true,
     html() {
       return `<section class="card c12 plan" id="pl"><div id="pl-b"></div></section>
-        ${card('c8', 'pl-ses', 'Séance du jour', 'Programme MacroFactor · charge visée = ta force estimée récente ramenée à la fourchette et au RIR prévus, calée sur une charge que tu as déjà utilisée', '', { table: false, body: '<div id="pl-ses-b"></div>' })}
-        ${card('c4', 'pl-mus', 'Muscles', 'Séries des 7 derniers jours, + prévu aujourd’hui (cible 10–20 / sem)', '', { table: false, body: '<div id="pl-mus-b"></div>' })}
-        ${card('c12', 'pl-wk', 'Semaine à venir', 'Programme projeté jour par jour et agenda', '', { table: false, body: '<div id="pl-wk-b"></div>' })}
-        ${card('c12', 'pl-eff', 'Effort musculation · prévu et réalisé', 'Séries efficaces : chaque série de travail compte selon sa proximité de l’échec (RIR 0 = 1 ; RIR 2 = 0,85 ; RIR 4 = 0,5). Zones = quartiles de tes séances des 6 derniers mois', '', { h: 'short' })}
-        <div class="c12 divider"><h2>Bilan du jour</h2><span>la dernière journée complète, ou le jour choisi</span></div>
+        ${card('c8', 'pl-ses', 'Séance du jour', 'Programme MacroFactor · charge visée = ta force estimée récente ramenée à la fourchette et au RIR prévus, calée sur une charge que tu as déjà utilisée', '', { table: false, body: '<div id="pl-ses-b"></div>', icon: 'dumbbell', tone: 'strain' })}
+        ${card('c4', 'pl-mus', 'Muscles', 'Séries des 7 derniers jours, + prévu aujourd’hui (cible 10–20 / sem)', '', { table: false, body: '<div id="pl-mus-b"></div>', icon: 'muscle', tone: 'strain' })}
+        ${card('c12', 'pl-wk', 'Semaine à venir', 'Programme projeté jour par jour et agenda', '', { table: false, body: '<div id="pl-wk-b"></div>', icon: 'calendar', tone: 'accent' })}
+        ${card('c12', 'pl-eff', 'Effort musculation · prévu et réalisé', 'Séries efficaces : chaque série de travail compte selon sa proximité de l’échec (RIR 0 = 1 ; RIR 2 = 0,85 ; RIR 4 = 0,5). Zones = quartiles de tes séances des 6 derniers mois', '', { h: 'short', icon: 'zap', tone: 'strain' })}
+        <div class="c12 divider"><h2>Bilan du jour</h2><span>la dernière journée notée, ou le jour choisi</span></div>
+        <div class="c12" id="td-fresh" hidden></div>
         <section class="card c12 dayhero">
           <div class="daynav"><button type="button" class="btn icon-btn" data-dayshift="-1" aria-label="Jour précédent">‹</button><h2 id="td-date"></h2><button type="button" class="btn icon-btn" data-dayshift="1" aria-label="Jour suivant">›</button>
-            <span class="rel" id="td-rel"></span><span class="grow"></span><input type="date" class="field" id="td-pick" aria-label="Choisir un jour"><button type="button" class="link" id="td-last">Dernière journée complète</button></div>
+            <span class="rel" id="td-rel"></span><span class="grow"></span><input type="date" class="field" id="td-pick" aria-label="Choisir un jour"><button type="button" class="link" id="td-last">Dernière journée notée</button></div>
           <div class="dh-body">
             <div class="dh-score" id="td-score"></div>
             <div class="dh-text"><h3 id="td-verdict"></h3><div class="dh-parts" id="td-parts"></div><div class="dh-meta" id="td-meta"></div></div>
           </div>
-          <div id="td-alert"></div></section>
+          <div id="td-miss"></div><div id="td-alert"></div></section>
         <div class="rings three c12" id="td-rings"></div>
-        ${card('c7', 'td-bm', 'Biomarqueurs', 'Valeur du jour et ta plage normale (médiane ± écart robuste des 30 jours précédents)', '', { table: false, body: '<div id="td-bm-b"></div>' })}
-        ${card('c5', 'td-str', 'Séance & activité', null, '', { table: false, body: '<div id="td-str-b"></div>' })}
-        ${card('c7', 'td-sleep', 'Sommeil', '', '', { h: 'short' })}
-        ${card('c5', 'td-nut', 'Nutrition & hydratation', null, '', { table: false, body: '<div id="td-nut-b"></div>' })}
-        ${card('c7', 'td-jr', 'Journal', 'Une note libre suffit ; les #tags servent à mesurer l’effet de tes habitudes.', '', { table: false, body: '<div id="td-jr-b"></div>' })}
-        ${card('c5', 'td-14', '14 jours', 'Récupération (couleur de zone) et effort musculation (séries efficaces, zone)', '', { h: 'short' })}`;
+        ${card('c7', 'td-bm', 'Biomarqueurs', 'Valeur du jour et ta plage normale (médiane ± écart robuste des 30 jours précédents)', '', { table: false, body: '<div id="td-bm-b"></div>', icon: 'heart', tone: 'rec' })}
+        ${card('c5', 'td-str', 'Séance & activité', null, '', { table: false, body: '<div id="td-str-b"></div>', icon: 'flame', tone: 'act' })}
+        ${card('c7', 'td-sleep', 'Sommeil', '', '', { h: 'short', icon: 'moon', tone: 'sleep' })}
+        ${card('c5', 'td-nut', 'Nutrition & hydratation', null, '', { table: false, body: '<div id="td-nut-b"></div>', icon: 'food', tone: 'nutri' })}
+        ${card('c7', 'td-jr', 'Journal', 'Une note libre suffit ; les #tags servent à mesurer l’effet de tes habitudes.', '', { table: false, body: '<div id="td-jr-b"></div>', icon: 'journal', tone: 'age' })}
+        ${card('c5', 'td-14', '14 jours', 'Récupération (couleur de zone) et effort musculation (séries efficaces, zone)', '', { h: 'short', icon: 'trend', tone: 'accent' })}`;
     },
 
     // ================================================================ plan du jour
@@ -122,37 +129,64 @@
         title = `${esc(slot.day)}${done ? ' <span class="okmark">✓ faite</span>' : ''}`;
         subl = `${esc(DAY_FR[slot.day.toLowerCase()] || '')} · programme ${esc(st.prog.name)} · semaine ${slot.cycle}/${st.prog.cycles.length} · séance ${st.sessionNo}/${st.trainSlots}${sp ? ` · ${sp.sets} séries · ≈ ${fHM(sp.dur)}` : ''}`;
       }
-      const srcTxt = rd.src === 'night' ? 'nuit de cette nuit' : rd.srcDate ? `dernière nuit importée (${fdM(rd.srcDate)}) : exporte Apple Santé ce matin pour une décision à jour` : 'pas de mesure de récupération';
+      const srcTxt = rd.src === 'night' ? `mesures de la ${SD.nightOf(t)}` : rd.srcDate ? `la ${SD.nightOf(t)} n’est pas encore exportée : état lu sur la ${SD.nightOf(rd.srcDate)} · exporte Apple Santé pour une décision à jour` : 'pas de mesure de récupération';
+      const goIc = (lv) => `<span class="go-ic">${SD.icon(lv === 'go' ? 'check' : lv === 'rest' ? 'moon' : lv === 'easy' ? 'stop' : 'alert')}</span>`;
       const goBox = slot && !slot.rest && !done
-        ? `<div class="pl-go ${rd.level}"><b>${esc(rd.title)}</b><span>${esc(rd.advice)}</span><small>${esc(rd.reasons.join(' · ') || 'pas de signal particulier')} · ${esc(srcTxt)}</small></div>`
-        : slot && slot.rest ? `<div class="pl-go rest"><b>Récupération active</b><span>Marche 30 à 45 min pour tenir tes pas, mobilité 10 min ; pas de séance lourde.</span><small>${isNum(rd.rec) ? `récupération ${rd.rec} % · ` : ''}${esc(srcTxt)}</small></div>`
-          : done ? `<div class="pl-go go"><b>Séance enregistrée</b><span>${xt && xt.eff ? `${nf(xt.eff.stim, 1)} séries efficaces pour ${nf(sp && sp.stim, 1)} prévues (${Math.round((xt.eff.stim / (sp ? sp.stim : xt.eff.stim)) * 100)} %).` : 'Bravo.'}</span><small>Récupère : protéines, hydratation, coucher à l’heure.</small></div>` : '';
+        ? `<div class="pl-go ${rd.level}">${goIc(rd.level)}<b>${esc(rd.title)}</b><span>${esc(rd.advice)}</span><small>${esc(rd.reasons.join(' · ') || 'pas de signal particulier')} · ${esc(srcTxt)}</small></div>`
+        : slot && slot.rest ? `<div class="pl-go rest">${goIc('rest')}<b>Récupération active</b><span>Marche 30 à 45 min pour tenir tes pas, mobilité 10 min ; pas de séance lourde.</span><small>${isNum(rd.rec) ? `récupération ${rd.rec} % · ` : ''}${esc(srcTxt)}</small></div>`
+          : done ? `<div class="pl-go go">${goIc('go')}<b>Séance enregistrée</b><span>${xt && xt.eff ? `${nf(xt.eff.stim, 1)} séries efficaces pour ${nf(sp && sp.stim, 1)} prévues (${Math.round((xt.eff.stim / (sp ? sp.stim : xt.eff.stim)) * 100)} %).` : 'Bravo.'}</span><small>Récupère : protéines, hydratation, coucher à l’heure.</small></div>` : '';
 
       // ---- zone d'effort visée
       let effHtml = '';
       if (sp && z) {
         const zp = SD.scores.effZone(sp.stim, z);
         const adj = rd.level === 'easy' ? 0.8 : rd.level === 'caution' ? 0.92 : 1;
-        effHtml = `<div class="pl-eff"><div class="k">Zone d’effort visée</div><div class="v">${zoneLabel(zp)} <small>≈ ${nf(sp.stim * adj, 1)} séries efficaces${adj < 1 ? ` (${nf(sp.stim, 1)} au programme, ajusté à ton état)` : ''}</small></div>
+        effHtml = `<div class="pl-eff"><div class="k">${hic('target', 'strain')}Zone d’effort visée</div><div class="v">${zoneLabel(zp)} <small>≈ ${nf(sp.stim * adj, 1)} séries efficaces${adj < 1 ? ` (${nf(sp.stim, 1)} au programme, ajusté à ton état)` : ''}</small></div>
           ${effScale(T, z, sp.stim * adj, done && xt && xt.eff ? xt.eff.stim : null)}
           <p class="note">${sp.sets} séries au RIR prévu. Une séance « ${zoneLabel(zp).toLowerCase()} » te situe ${zp === 'high' ? 'dans ton quart le plus exigeant' : zp === 'sus' ? 'au-dessus de ta séance médiane' : zp === 'mod' ? 'juste sous ta séance médiane' : 'dans ton quart le plus léger'} (médiane ${nf(z.p50, 1)}).</p></div>`;
       } else if (slot && slot.rest) {
-        effHtml = `<div class="pl-eff"><div class="k">Zone d’effort visée</div><div class="v">Repos <small>aucune série de musculation</small></div>${z ? effScale(T, z, null, null) : ''}<p class="note">Le repos fait partie du programme : ${st.prog.cycles[0].filter((d) => d.rest).length} jours par semaine de programme.</p></div>`;
+        effHtml = `<div class="pl-eff"><div class="k">${hic('target', 'strain')}Zone d’effort visée</div><div class="v">Repos <small>aucune série de musculation</small></div>${z ? effScale(T, z, null, null) : ''}<p class="note">Le repos fait partie du programme : ${st.prog.cycles[0].filter((d) => d.rest).length} jours par semaine de programme.</p></div>`;
       }
 
-      // ---- ta journée : agenda + créneau
-      let dayHtml = '<div class="pl-day"><div class="k">Ta journée</div>';
+      // ---- ta journée : la séance telle qu'elle est dans l'agenda, ses conflits, sinon un créneau libre
+      let dayHtml = `<div class="pl-day"><div class="k">${hic('calendar', 'accent')}Ta journée</div>`;
       if (cal.state === 'ok') {
-        const sug = sp && !done ? P().suggestSlot(M, cal.events, t, sp.dur) : null;
-        const items = (evToday || []).map((e) => ({ t: e.allDay ? 'journée' : `${P().hm(e.start)}–${P().hm(e.end)}`, s: e.allDay ? 0 : e.start.getTime(), l: e.title, k: 'ev' }));
-        if (sug && sug.best) items.push({ t: `${P().hm(sug.best.start)}–${P().hm(sug.best.end)}`, s: sug.best.start.getTime(), l: `Créneau conseillé : ${slot.day} (≈ ${fHM(sp.dur)} + trajet)`, k: 'gym' });
+        const hm = P().hm;
+        const span = (e) => (e.allDay ? 'journée' : `${hm(e.start)}–${hm(e.end)}`);
+        const gym = cal.training(t);
+        const need = sp ? sp.dur : 75;
+        const conf = gym.flatMap((g) => cal.conflicts(g));
+        const now = new Date();
+        const items = (evToday || []).map((e) => ({ t: span(e), s: e.allDay ? 0 : e.start.getTime(), l: e.title, k: e.training ? 'gym' : conf.includes(e) ? 'ev clash' : e.long ? 'ev long' : 'ev', c: e.cal }));
         items.sort((a, b) => a.s - b.s);
-        dayHtml += items.length ? `<ul class="tl">${items.map((i) => `<li class="${i.k}"><span>${esc(i.t)}</span><b>${esc(i.l)}</b></li>`).join('')}</ul>` : '<p class="note">Rien à l’agenda aujourd’hui.</p>';
-        if (sp && !done && sug && !sug.best) dayHtml += '<p class="note warn">Pas de créneau libre assez long entre 6 h 30 et 21 h 30 : garde la version courte ou décale.</p>';
-        if (sug && sug.best) dayHtml += `<p class="note">Créneau placé au plus près de ton heure habituelle (${esc(sug.pref)}), réglable dans la configuration.</p>`;
+        dayHtml += items.length ? `<ul class="tl">${items.map((i) => `<li class="${i.k}"><span>${esc(i.t)}</span><b>${esc(i.l)}${i.c && cal.calendars && cal.calendars.length > 1 ? `<small>${esc(i.c)}</small>` : ''}</b></li>`).join('')}</ul>` : '<p class="note">Rien à l’agenda aujourd’hui.</p>';
+        const free = (from) => P().freeSlots(cal.events, t, need + ((M.cfg.plan && M.cfg.plan.travelMin) || 20), Object.assign({ dayStart: '06:30', dayEnd: '21:30' }, M.cfg.plan || {})).filter((f) => !from || f[1] > from);
+        const fmtFree = (fs) => fs.slice(0, 3).map((f) => `${hm(f[0])}–${hm(f[1])}`).join(' · ');
+        if (gym.length) {
+          const g = gym[0];
+          dayHtml += `<p class="note">Séance à l’agenda : <b>${esc(g.title)}</b> ${esc(span(g))}${sp && Math.abs((g.end - g.start) / 60000 - sp.dur) > 20 ? ` · durée prévue par le programme ≈ ${esc(fHM(sp.dur))}` : ''}.</p>`;
+          if (conf.length && !done) {
+            const alt = free(now);
+            dayHtml += `<p class="note warn">Conflit : ${conf.map((e) => `${esc(e.title)} ${esc(span(e))}`).join(', ')} chevauche${conf.length > 1 ? 'nt' : ''} la séance.${alt.length ? ` Créneaux libres assez longs aujourd’hui : ${esc(fmtFree(alt))}.` : ' Aucun autre créneau libre assez long aujourd’hui : raccourcis la séance ou décale-la.'}</p>`;
+          }
+        } else if (sp && !done) {
+          const fs = free(now);
+          const pref = P().usualStart(M);
+          const [ph, pm] = pref.split(':').map(Number);
+          const prefMin = ph * 60 + (pm || 0);
+          const best = fs.slice().sort((a, b) => Math.abs(a[0].getHours() * 60 + a[0].getMinutes() - prefMin) - Math.abs(b[0].getHours() * 60 + b[0].getMinutes() - prefMin))[0];
+          dayHtml += fs.length
+            ? `<p class="note">Pas de séance ${esc(slot.day)} à ton agenda aujourd’hui. Créneaux libres d’au moins ${esc(fHM(need))} + trajet : <b>${esc(fmtFree(fs))}</b>${best && fs.length > 1 ? ` · le plus proche de ton heure habituelle (${esc(pref)}) : ${esc(hm(best[0]))}` : ''}.</p>`
+            : `<p class="note warn">Pas de séance à ton agenda et aucun créneau libre de ${esc(fHM(need))} + trajet d’ici 21 h 30 : garde la version courte ou décale.</p>`;
+        }
+        if (cal.partial && cal.partial.length) dayHtml += `<p class="note">Agenda${cal.partial.length > 1 ? 's' : ''} non lu${cal.partial.length > 1 ? 's' : ''} : ${esc(cal.partial.join(', '))}.</p>`;
+        if (cal.calendars && cal.calendars.length > 1) {
+          const onN = cal.calendars.filter((c) => c.on).length;
+          dayHtml += `<details class="calsel"><summary>Agendas pris en compte (${onN}/${cal.calendars.length})</summary>${cal.calendars.map((c) => `<label class="kchk"><input type="checkbox" data-cal="${esc(c.id)}"${c.on ? ' checked' : ''}${c.main ? ' disabled' : ''}><span>${esc(c.name)}${c.main ? '<small>agenda principal</small>' : ''}</span></label>`).join('')}<p class="note">Décoche un agenda dont les événements ne t’occupent pas (enfant, partage familial) : il ne compte plus pour les créneaux libres. Les longues plages (5 h et plus : journée de travail, garde) restent affichées mais ne comptent ni comme conflit ni pour les créneaux.</p></details>`;
+        }
       } else if (cal.state === 'consent' || cal.state === 'denied' || cal.state === 'error') {
-        dayHtml += `<p class="note">${cal.state === 'error' ? esc(cal.error) : 'Connecte ton agenda Google pour placer la séance dans ta journée et repérer les jours chargés.'}</p>${cal.state !== 'denied' ? '<button type="button" class="btn" id="pl-cal">Connecter l’agenda</button>' : ''}`;
-      } else if (cal.state === 'busy') dayHtml += '<p class="note">Lecture de l’agenda…</p>';
+        dayHtml += `<p class="note">${cal.state === 'error' ? esc(cal.error) : 'Connecte ton agenda Google pour voir ta séance du jour, ses conflits et tes créneaux libres.'}</p>${cal.state !== 'denied' ? '<button type="button" class="btn" id="pl-cal">Connecter l’agenda</button>' : ''}`;
+      } else if (cal.state === 'busy') dayHtml += '<p class="note">Lecture de tes agendas…</p>';
       else dayHtml += '<p class="note">L’agenda se lit quand le dashboard est ouvert dans claude.ai.</p>';
       dayHtml += '</div>';
 
@@ -165,24 +199,31 @@
       let bed = null;
       if (slp) { const [h, m] = wake.split(':').map(Number); const mins = h * 60 + m - Math.round(slp.need * 60) - 15; const mm = ((mins % 1440) + 1440) % 1440; bed = `${String(Math.floor(mm / 60)).padStart(2, '0')} h ${String(mm % 60).padStart(2, '0')}`; }
       const stepsT = M.cfg.targets.stepsGoal;
-      const tgtHtml = `<div class="pl-tg"><div class="k">Cibles du jour</div>
-        <div class="statline"><span>Calories · protéines</span><b>${tg ? `${nf(tg.kcal, 0)} kcal · ${nf(tg.prot, 0)} g` : '—'}</b></div>
-        ${tg ? `<div class="statline"><span>Glucides · lipides</span><b>${nf(tg.carb, 0)} g · ${nf(tg.fat, 0)} g</b></div>` : ''}
-        <div class="statline"><span>Hydratation</span><b>${hyd ? `≈ ${nf(hyd / 1000, 1)} L` : '—'}</b></div>
-        <div class="statline"><span>Pas</span><b>${nf(stepsT, 0)}${xt && isNum(xt.steps) ? ` · ${nf(xt.steps, 0)} à l’export` : ''}</b></div>
-        <div class="statline"><span>Sommeil cette nuit</span><b>${slp ? `${fH(slp.need)}${bed ? ` · couché vers ${bed}` : ''}` : '—'}</b></div>
+      // dernière nuit mesurée (rattachée au jour du réveil), pour ne pas la confondre avec le sommeil à viser ce soir
+      let ln = null;
+      for (let k = 0; k <= 7 && !ln; k++) { const y = M.at(addD(t, -k)); if (y && isNum(y.sleepH)) ln = y; }
+      const goal = (ic, tone, lab, val, sub) => `<div class="goal" style="--tc:var(--${tone})"><span class="gi">${SD.icon(ic)}</span><span>${lab}${sub ? `<small>${sub}</small>` : ''}</span><b>${val}</b></div>`;
+      const tgSrc = !tg ? '' : tg.src === 'programme' ? `programme MacroFactor du ${fdM(tg.from)}` : tg.src === 'jour' ? `MacroFactor, ${fdM(tg.from)}` : `dernière cible MacroFactor connue (${fdM(tg.from)})`;
+      const tgtHtml = `<div class="pl-tg"><div class="k">${hic('flag', 'rec')}Cibles du jour</div>
+        ${goal('flame', 'nutri', 'Calories', tg ? `${nf(tg.kcal, 0)} kcal` : '—', tg ? `protéines ${nf(tg.prot, 0)} g · glucides ${nf(tg.carb, 0)} g · lipides ${nf(tg.fat, 0)} g<br>${esc(tgSrc)}` : 'aucune cible MacroFactor dans tes exports')}
+        ${goal('droplet', 'hydro', 'Hydratation', hyd ? `≈ ${nf(hyd / 1000, 1)} L` : '—', '')}
+        ${goal('steps', 'act', 'Pas', nf(stepsT, 0), xt && isNum(xt.steps) ? `${nf(xt.steps, 0)} à l’export` : '')}
+        ${goal('moon', 'sleep', 'Sommeil à viser ce soir', slp ? fH(slp.need) : '—', [slp && bed ? `besoin pour la nuit à venir · couché vers ${bed}` : '', ln ? `dernière nuit mesurée : ${fH(ln.sleepH)} (${SD.nightOf(ln.d)})${ln.d < t ? ` · la ${SD.nightOf(t)} n’est pas encore exportée` : ''}` : ''].filter(Boolean).join('<br>'))}
         ${coach && (coach.nutri || coach.steps) ? `<p class="note">Coach : ${esc([coach.nutri && 'nutrition ' + coach.nutri, coach.steps && 'pas ' + coach.steps].filter(Boolean).join(' · ').slice(0, 240))}</p>` : ''}
         <p class="note">Hydratation : 35 ml/kg (EFSA 2010) + 0,5 L par heure de séance. Coucher calculé pour un réveil à ${esc(wake)}.</p></div>`;
 
-      el.innerHTML = `<div class="pl-head"><div><div class="eyebrow">Aujourd’hui · ${esc(dayName(t))}</div><h2 class="pl-title">${title}</h2><div class="pl-sub">${subl}</div></div>${goBox}</div>
+      el.innerHTML = `<div class="pl-head"><div><div class="eyebrow">${SD.icon('today')}Aujourd’hui · ${esc(dayName(t))}</div><h2 class="pl-title">${title}</h2><div class="pl-sub">${subl}</div></div>${goBox}</div>
         <div class="pl-grid">${effHtml}${dayHtml}${tgtHtml}</div>`;
       const cb = document.getElementById('pl-cal');
       if (cb) cb.onclick = () => SD.cal.load();
+      el.querySelectorAll('[data-cal]').forEach((inp) => { inp.onchange = () => SD.cal.toggle(inp.dataset.cal, inp.checked); });
+      const cs = el.querySelector('.calsel');
+      if (cs) { cs.open = !!today.calOpen; cs.ontoggle = () => { today.calOpen = cs.open; }; }
 
       // ---- séance du jour
       let ses = '';
       if (coach && coach.plan && coach.plan.lines.length) {
-        ses += `<div class="coachbox"><div class="k">Décision du coach · ${esc(fdM(coach.d))}${coach.plan.title ? ` · ${esc(coach.plan.title)}` : ''}</div><ul>${coach.plan.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
+        ses += `<div class="coachbox"><div class="k">${SD.icon('chat')}Décision du coach · ${esc(fdM(coach.d))}${coach.plan.title ? ` · ${esc(coach.plan.title)}` : ''}</div><ul>${coach.plan.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>`;
       }
       if (sp) {
         const restTxt = (s) => (isNum(s) ? (s >= 60 ? `${Math.floor(s / 60)}′${s % 60 ? String(s % 60).padStart(2, '0') : ''}` : `${s}″`) : '');
@@ -214,13 +255,18 @@
       // ---- semaine à venir
       if (st) {
         setHTML('pl-wk-b', `<div class="wk7">${st.week.map((w, i) => {
-          const ev = cal.state === 'ok' ? cal.on(w.d) : null;
-          const busyMin = ev ? ev.filter((e) => !e.allDay && e.busy).reduce((a, e) => a + Math.max(0, (e.end - e.start) / 60000), 0) : 0;
+          const all = cal.state === 'ok' ? cal.on(w.d) : null;
+          const gymE = all ? all.filter((e) => e.training) : [];
+          // rendez-vous d'abord, longues plages (travail, garde) ensuite
+          const ev = all ? all.filter((e) => !e.training).sort((a, b) => (a.long ? 1 : 0) - (b.long ? 1 : 0) || a.start - b.start) : null;
+          const busyMin = ev ? ev.filter((e) => !e.allDay && !e.long && e.busy && !e.training).reduce((a, e) => a + Math.max(0, (e.end - e.start) / 60000), 0) : 0;
+          const clash = gymE.length ? cal.conflicts(gymE[0]) : [];
           const lbl = !w.slot ? 'fin du programme' : w.slot.rest ? 'Repos' : w.slot.day;
           return `<div class="wd ${w.slot && w.slot.rest ? 'rest' : ''} ${i === 0 ? 'today' : ''}"><div class="h">${esc(SD.fdate(w.d, { weekday: 'short' }))} <small>${esc(fdS(w.d))}</small></div>
             <div class="s">${esc(lbl)}${w.done ? ' ✓' : ''}</div>${w.slot && !w.slot.rest ? `<small>${P().plannedSets(w.slot)} séries · ${zoneLabel(SD.scores.effZone(P().plannedStim(w.slot), z)).toLowerCase()}</small>` : ''}
-            ${ev ? `<div class="ev">${ev.slice(0, 3).map((e) => `<span>${e.allDay ? '' : esc(P().hm(e.start)) + ' '}${esc(e.title)}</span>`).join('')}${ev.length > 3 ? `<span>+${ev.length - 3}</span>` : ''}</div>${busyMin >= 360 ? '<small class="warn">journée chargée</small>' : ''}` : ''}</div>`;
-        }).join('')}</div><p class="note">Projection si tu suis le programme sans décalage : une séance manquée reste à faire le jour suivant (le programme est séquentiel).</p>`);
+            ${gymE.length ? `<div class="gymev">${SD.icon('dumbbell')}<span>${esc(P().hm(gymE[0].start))} · ${esc(gymE[0].title)}</span></div>${clash.length ? `<small class="warn">conflit : ${esc(clash[0].title)} ${esc(P().hm(clash[0].start))}</small>` : ''}` : all && w.slot && !w.slot.rest && !w.done ? '<small class="muted">pas à l’agenda</small>' : ''}
+            ${ev && ev.length ? `<div class="ev">${ev.slice(0, 3).map((e) => `<span>${e.allDay ? '' : esc(P().hm(e.start)) + ' '}${esc(e.title)}</span>`).join('')}${ev.length > 3 ? `<span>+${ev.length - 3}</span>` : ''}</div>` : ''}${busyMin >= 360 ? '<small class="warn">journée chargée</small>' : ''}</div>`;
+        }).join('')}</div><p class="note">Programme projeté sans décalage (une séance manquée reste à faire le jour suivant) et séances placées dans ton agenda (titres avec « Sport », « Salle », « Séance » ou le nom de la journée : Upper, Push…).</p>`);
       } else setHTML('pl-wk-b', '<div class="empty">Pas de programme actif.</div>');
 
       // ---- effort prévu vs réalisé (28 jours)
@@ -240,15 +286,44 @@
       }), () => ({ cols: ['Date', 'Séance', 'Séries efficaces', 'Prévu', 'Zone', 'Séries', 'Dures', 'RIR moyen', 'Tonnage'], rows: days.filter((y) => y.eff).map((y) => [fdM(y.d), y.planDay || '', nf(y.eff.stim, 1), isNum(y.effPlan) ? nf(y.effPlan, 1) : '—', zoneLabel(y.eff.zone), nf(y.eff.sets, 1), nf(y.eff.hard, 1), isNum(y.eff.rir) ? nf(y.eff.rir, 1) : '—', nf(y.eff.vol, 0) + ' kg']) }));
     },
 
+    /** Exports en retard : ce qui manque depuis quand, pour ne pas lire une journée vide comme une mauvaise journée */
+    renderFresh() {
+      const { M } = SD;
+      const el = document.getElementById('td-fresh');
+      if (!el) return;
+      const f = M.fresh || {}, now = Date.now(), msgs = [];
+      const age = (iso) => (iso ? (now - new Date(iso).getTime()) / 36e5 : null);
+      const when = (iso) => new Date(iso).toLocaleString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+      const ago = (h) => (h < 48 ? `il y a ${Math.round(h)} h` : `il y a ${Math.round(h / 24)} jours`);
+      const h = f.health && f.health.last ? age(f.health.last) : null;
+      // export récent, mais qui s'arrête avant aujourd'hui (téléphone ou montre pas encore synchronisés au moment de l'export)
+      const lastDay = f.health && f.health.last ? new Date(f.health.last).toLocaleDateString('sv-SE') : null;
+      if (isNum(h) && h <= 30 && f.health.to && lastDay && f.health.to < lastDay) {
+        const inc = [];
+        for (let i = 1; i <= 3; i++) { const y = M.at(addD(M.today, -i)); if (y && y.healthPartial) inc.push(SD.fdate(y.d, { day: 'numeric', month: 'long' })); }
+        msgs.push(`<b>Apple Santé</b> : l’export du ${esc(when(f.health.last))} s’arrête au ${esc(SD.fdate(f.health.to, { day: 'numeric', month: 'long' }))}${inc.length ? ` et cette journée y est incomplète (${esc(inc.join(', '))})` : ''} : la ${esc(SD.nightOf(lastDay))} n’y est pas. Relance l’export une fois ta montre synchronisée avec ton téléphone.`);
+      }
+      if (isNum(h) && h > 30) msgs.push(`<b>Apple Santé</b> : dernier export ${esc(when(f.health.last))} (${ago(h)}). Sommeil, récupération, FC et boissons manquent ${f.health.to ? `depuis le ${esc(SD.fdate(addD(f.health.to, 1), { day: 'numeric', month: 'long' }))}` : ''}.`);
+      const m = f.macrofactor && f.macrofactor.last ? age(f.macrofactor.last) : null;
+      if (isNum(m) && m > 36) msgs.push(`<b>MacroFactor</b> : dernier export ${esc(when(f.macrofactor.last))} (${ago(m)}). Nutrition, poids et séances manquent ${f.macrofactor.to ? `depuis le ${esc(SD.fdate(addD(f.macrofactor.to, 1), { day: 'numeric', month: 'long' }))}` : ''}.`);
+      // jours récents sans rien de loggé dans MacroFactor alors que l'export les couvre
+      const unl = [];
+      for (let i = 1; i <= 4; i++) { const d = addD(M.today, -i), y = M.at(d); if (y && f.macrofactor && f.macrofactor.to && d <= f.macrofactor.to && !isNum(y.kcal)) unl.push(d); }
+      if (unl.length) msgs.push(`<b>Nutrition</b> : rien loggé dans MacroFactor le${unl.length > 1 ? 's' : ''} ${esc(andList(unl.reverse().map((d) => SD.fdate(d, { day: 'numeric', month: 'long' }))))} (export du ${esc(SD.fdate(String(f.macrofactor.last).slice(0, 10), { day: 'numeric', month: 'long' }))}).`);
+      el.hidden = !msgs.length;
+      el.innerHTML = msgs.length ? `<div class="alert warn"><b>Données en retard</b>${msgs.join('<br>')}<br><span class="note">Les journées concernées sont affichées avec ce qu’elles contiennent ; leur note attend les données manquantes.</span></div>` : '';
+    },
+
     update() {
       const { M, S, T } = SD;
       try { this.renderPlan(); } catch (e) { const el = document.getElementById('pl-b'); if (el) el.innerHTML = `<div class="empty">Plan du jour indisponible : ${esc(e.message)}</div>`; }
+      try { this.renderFresh(); } catch (e) { console.error(e); }
       if (!S.day || !M.at(S.day)) S.day = M.lastComplete;
       const d = S.day, x = M.at(d);
       const cfg = M.cfg.targets;
       setText('td-date', SD.fdate(d, { weekday: 'long', day: 'numeric', month: 'long' }));
       const rel = relDay(d);
-      setHTML('td-rel', `${rel ? esc(rel) : ''}${x.partial ? ' · journée incomplète (jour de l’export)' : ''}`);
+      setHTML('td-rel', `${rel ? esc(rel) : ''}${x.inProgress ? '' : x.partial && !x.stepsFull ? ' · journée incomplète (jour de l’export)' : ''}`);
       const pick = document.getElementById('td-pick');
       if (pick) { pick.value = d; pick.min = M.first; pick.max = M.last; }
       const sub = document.getElementById('page-sub');
@@ -257,12 +332,20 @@
       // ---- note du jour (héros)
       const ds = SD.scores.dayScore(x);
       const nut = SD.scores.nutriScore(x);
-      const PC = { sleep: T.sleep, train: T.strain, nutri: T.nutri, steps: T.act, hydro: T.s[0] };
-      const parts = SD.scores.dayParts(x).map((p) => Object.assign(p, { c: PC[p.k] }));
-      setHTML('td-score', ring({ value: ds, max: 100, color: SD.scoreColor(ds), text: isNum(ds) ? SD.scores.grade(ds) : null, unit: isNum(ds) ? `${nf(ds, 0)} / 100` : '', label: 'Note du jour', size: 200, stroke: 11, cls: 'xl' }));
-      setText('td-verdict', dayVerdict(ds, parts));
-      setHTML('td-parts', parts.map((p) => `<div class="dpart${isNum(p.v) ? '' : ' na'}"><span>${p.l}<small>${esc(p.d)}</small></span><div class="bar2"><i style="width:${isNum(p.v) ? Math.max(2, Math.min(100, p.v)) : 0}%;background:${p.c}"></i></div><b>${isNum(p.v) ? nf(p.v, 0) : 'n. d.'}</b></div>`).join('')
-        + '<p class="note" style="margin:6px 0 0">Note = moyenne à poids égaux des cibles atteintes (ce qui dépend de toi). La récupération est un état : elle guide la séance, elle n’entre pas dans la note.</p>');
+      const PC = { sleep: T.sleep, train: T.strain, nutri: T.nutri, steps: T.act, hydro: T.hydro };
+      const gaps = SD.scores.dayGaps(x);
+      const why = (k) => { const g = gaps.find((q) => q.parts.includes(k)); return g ? g.why : null; };
+      const parts = SD.scores.dayParts(x).map((p) => Object.assign(p, { c: PC[p.k], miss: isNum(p.v) ? null : why(p.k) }));
+      const hit = gaps.filter((g) => g.parts.some((k) => parts.some((p) => p.k === k && !isNum(p.v))));
+      const provisional = isNum(ds) && hit.length > 0;
+      setHTML('td-score', ring({ value: ds, max: 100, color: SD.scoreColor(ds), text: isNum(ds) ? SD.scores.grade(ds) : x.inProgress ? '…' : '—', unit: isNum(ds) ? `${nf(ds, 0)} / 100${provisional ? ' · provisoire' : ''}` : x.inProgress ? 'en cours' : 'non calculée', label: 'Note du jour', size: 200, stroke: 11, cls: 'xl' }));
+      setText('td-verdict', x.inProgress ? 'Journée en cours : la note se calcule une fois la journée terminée.' : !isNum(ds) && hit.length ? 'Note non calculée : il manque des données ce jour-là.' : dayVerdict(ds, parts));
+      setHTML('td-parts', parts.map((p) => `<div class="dpart${isNum(p.v) ? '' : ' na'}"><span>${p.l}<small>${esc(p.miss || p.d)}</small></span><div class="bar2"><i style="width:${isNum(p.v) ? Math.max(2, Math.min(100, p.v)) : 0}%;background:${p.c}"></i></div><b>${isNum(p.v) ? nf(p.v, 0) : 'n. d.'}</b></div>`).join('')
+        + '<p class="note" style="margin:6px 0 0">Note = moyenne à poids égaux des cibles atteintes (ce qui dépend de toi), dès 3 composantes mesurées. La récupération est un état : elle guide la séance, elle n’entre pas dans la note.</p>');
+      // export Apple Santé coupé en cours de journée : la note reste calculable (pas de MacroFactor), mais on le signale
+      const info = gaps.filter((g) => g.k === 'partial' && x.healthPartial && !hit.includes(g));
+      const shown = hit.concat(info);
+      setHTML('td-miss', shown.length && !x.inProgress ? `<div class="alert warn" style="margin-top:14px"><b>${hit.length ? 'Données manquantes ce jour-là' : 'Export incomplet ce jour-là'}</b>${shown.map((g) => `${esc(g.l)} : ${esc(g.why)}`).join(' · ')}.${shown.some((g) => g.k === 'health' || g.k === 'partial') ? ' Relance ton export Apple Santé (raccourci ou automatisation) : les jours manquants ou incomplets se complètent au prochain export.' : ''}</div>` : '');
       const sess = x.w.length ? x.w.map((w) => `${esc(w.type)}${STRENGTH.has(w.type) && x.split ? ' · ' + esc(x.split) : ''}${w.min != null ? ' ' + fHM(w.min) : ''}`).join(' + ') : 'aucune séance';
       const wd = SD.fdate(d, { weekday: 'long' });
       setHTML('td-meta', `<span class="pill"><span class="dot" style="background:${x.train ? T.strain : T.muted}"></span>Séance du ${esc(wd)} : <b>${sess}</b></span>${x.phase ? `<span class="pill">Phase <b>${esc(x.phase)}</b></span>` : ''}`);
@@ -274,15 +357,21 @@
       const tgt = SD.scores.strainTarget(x.rec);
       const zone = SD.scores.strainZone(x.strain);
       const need = x.sleepNeed;
+      // cartes anneau façon cartes santé : anneau à gauche, titre + statut + détails à droite
+      const rcard = (rg, title, status, lines) => `<div class="rcard">${rg}<div class="rc-body"><div class="rc-t"><span>${title}</span>${status || ''}</div><div class="lines">${lines}</div></div></div>`;
+      const rsz = { size: 104, stroke: 11, hideLabel: true };
+      const perf = x.sleepPerf;
       setHTML('td-rings', [
-        `<div class="rcard">${ring({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récupération' })}
-          <div class="lines">HRV ${zTxt('hrv', 0)} · FC repos ${zTxt('rhr', 0)}<br>Respiration ${zTxt('resp', 1)}</div></div>`,
-        `<div class="rcard">${ring({ value: x.sleepPerf, max: 100, color: T.sleep, unit: '%', label: 'Sommeil' })}
-          <div class="lines">${isNum(x.sleepH) ? `<b>${fH(x.sleepH)}</b> dormies · besoin ${fH(need)}` : 'Pas de nuit enregistrée'}<br>${isNum(x.sleepDebt7) ? `Manque sur 7 nuits <b>${fH(x.sleepDebt7)}</b>` : ''}${isNum(x.sleepCons) ? ` · régularité <b>${nf(x.sleepCons, 0)}</b>` : ''}</div></div>`,
-        x.eff ? `<div class="rcard">${ring({ value: SD.scores.trainScore(x), max: 100, color: T.strain, text: nf(x.eff.stim, 1), unit: 'séries eff.', label: 'Effort muscu' })}
-          <div class="lines">Zone <b>${esc(zoneLabel(x.eff.zone).toLowerCase())}</b>${isNum(x.effPlan) ? ` · prévu <b>${nf(x.effPlan, 1)}</b> (${Math.round((x.eff.stim / x.effPlan) * 100)} %)` : ''}<br>${nf(x.eff.sets, 1)} séries dont <b>${nf(x.eff.hard, 1)}</b> dures · RIR moyen <b>${isNum(x.eff.rir) ? nf(x.eff.rir, 1) : '—'}</b> · ${nf(x.eff.vol, 0)} kg</div></div>`
-          : `<div class="rcard">${ring({ value: isNum(x.steps) ? Math.min(100, (x.steps / cfg.stepsGoal) * 100) : null, max: 100, color: T.act, text: isNum(x.steps) ? nf(x.steps / 1000, 1) + 'k' : null, unit: 'pas', label: 'Jour sans muscu' })}
-          <div class="lines">${zone ? `Activité <b>${SD.scores.STRAIN_LABEL[zone].toLowerCase()}</b> · ` : ''}${nf(x.activeKcal, 0)} kcal actives<br>Pas <b>${nf(x.steps, 0)}</b> / ${nf(cfg.stepsGoal, 0)}</div></div>`,
+        rcard(ring(Object.assign({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récupération' }, rsz)), 'Récupération', SD.statusPill(x.rec, 67, 34, ['Zone verte', 'Zone jaune', 'Zone rouge']),
+          `HRV ${zTxt('hrv', 0)} · FC repos ${zTxt('rhr', 0)}<br>Respiration ${zTxt('resp', 1)}`),
+        rcard(ring(Object.assign({ value: perf, max: 100, color: T.sleep, unit: '% du besoin', label: 'Sommeil' }, rsz)), 'Sommeil', isNum(perf) ? SD.statusPill(perf, 90, 75, ['Suffisant', 'Un peu court', 'Insuffisant']) : '',
+          `${esc(SD.cap1(SD.nightOf(d)))} : ${isNum(x.sleepH) ? `<b>${fH(x.sleepH)}</b> dormies · besoin ${fH(need)}` : 'pas de nuit enregistrée'}<br>${isNum(x.sleepDebt7) ? `Manque sur 7 nuits <b>${fH(x.sleepDebt7)}</b>` : ''}${isNum(x.sleepCons) ? ` · régularité <b>${nf(x.sleepCons, 0)}</b>` : ''}`),
+        x.eff
+          ? rcard(ring(Object.assign({ value: SD.scores.trainScore(x), max: 100, color: T.strain, text: nf(x.eff.stim, 1), unit: 'séries eff.', label: 'Effort musculation' }, rsz)), 'Effort musculation', `<span class="status ok">${esc(zoneLabel(x.eff.zone))}</span>`,
+            `${isNum(x.effPlan) ? `Prévu <b>${nf(x.effPlan, 1)}</b> · réalisé <b>${Math.round((x.eff.stim / x.effPlan) * 100)} %</b><br>` : ''}${nf(x.eff.sets, 1)} séries dont <b>${nf(x.eff.hard, 1)}</b> dures · RIR moyen <b>${isNum(x.eff.rir) ? nf(x.eff.rir, 1) : '—'}</b> · ${nf(x.eff.vol, 0)} kg`)
+          : rcard(ring(Object.assign({ value: isNum(x.steps) ? Math.min(100, (x.steps / cfg.stepsGoal) * 100) : null, max: 100, color: T.act, text: isNum(x.steps) ? nf(x.steps / 1000, 1) + 'k' : null, unit: 'pas', label: 'Pas' }, rsz)), 'Jour sans muscu',
+            isNum(x.steps) ? SD.statusPill((x.steps / cfg.stepsGoal) * 100, 100, 80, ['Objectif atteint', 'Presque', 'Sous l’objectif']) : '',
+            `${zone ? `Activité <b>${SD.scores.STRAIN_LABEL[zone].toLowerCase()}</b> · ` : ''}${nf(x.activeKcal, 0)} kcal actives<br>Pas <b>${nf(x.steps, 0)}</b> / ${nf(cfg.stepsGoal, 0)}`),
       ].join(''));
 
       // ---- biomarqueurs
@@ -304,7 +393,7 @@
       const act = x.w.map((w) => `<div class="statline"><span><i style="display:inline-block;width:9px;height:9px;border-radius:3px;background:${typeColor(w.type)};margin-right:7px"></i>${esc(w.type)}${STRENGTH.has(w.type) && x.split ? ` · ${esc(x.split)}` : ''}</span><b>${w.min != null ? fHM(w.min) : w.flag ? 'durée ignorée' : '—'}</b></div>`).join('');
       const sets = SD.sum(SD.pluck(x.ex, (e) => e.sets)), vol = SD.sum(SD.pluck(x.ex, (e) => e.vol));
       const prs = x.ex.filter((e) => e.pr);
-      const acwrZone = (v) => (v > 1.5 ? ['risque', T.crit] : v > 1.3 ? ['vigilance', T.warn] : v >= 0.8 ? ['optimal', T.good] : ['sous-charge', T.ink2]);
+      const acwrZone = (v) => (v > 1.5 ? ['risque', T.critInk] : v > 1.3 ? ['vigilance', T.warnInk] : v >= 0.8 ? ['optimal', T.goodInk] : ['sous-charge', T.ink2]);
       const wk0 = SD.weekOf(d);
       let weekTrain = 0;
       for (let q = wk0; q <= d; q = addD(q, 1)) { const y = M.at(q); if (y && y.train) weekTrain++; }
@@ -315,7 +404,7 @@
         ${x.eff ? `<div class="statline"><span>Effort musculation</span><b>${nf(x.eff.stim, 1)} séries efficaces · ${esc(zoneLabel(x.eff.zone).toLowerCase())}${isNum(x.effPlan) ? ` · ${Math.round((x.eff.stim / x.effPlan) * 100)} % du prévu` : ''}</b></div>
         <div class="statline"><span>Séries dures (RIR ≤ 3) · à l’échec</span><b>${nf(x.eff.hard, 1)} · ${x.eff.fail}</b></div>` : ''}
         ${x.ex.length ? `<div class="statline"><span>Exercices · séries · volume</span><b>${x.ex.length} · ${sets} · ${nf(vol, 0)} kg</b></div>` : ''}
-        ${prs.length ? `<div class="statline"><span>Records personnels</span><b style="color:${T.good}">${prs.map((e) => esc(e.n) + ' ' + nf(e.e1, 1) + ' kg').join(', ')}</b></div>` : ''}
+        ${prs.length ? `<div class="statline"><span>Records personnels</span><b style="color:${T.goodInk}">${prs.map((e) => esc(e.n) + ' ' + nf(e.e1, 1) + ' kg').join(', ')}</b></div>` : ''}
         <div class="statline"><span>Pas</span><b>${nf(x.steps, 0)} / ${nf(cfg.stepsGoal, 0)}</b></div>
         <div class="bar2"><i style="width:${Math.min(100, ((x.steps || 0) / cfg.stepsGoal) * 100)}%;background:${T.act}"></i></div>
         <div class="statline"><span>Calories actives · repos</span><b>${nf(x.activeKcal, 0)} · ${nf(x.restKcal, 0)} kcal</b></div>
@@ -347,15 +436,15 @@
       const macro = (lab, v, t, col, u) => `<div class="macro"><span>${lab}</span><div class="bar2" style="margin:0"><i style="width:${t ? Math.min(100, ((v || 0) / t) * 100) : 0}%;background:${col}"></i></div><b>${nf(v, 0)}${t ? ' / ' + nf(t, 0) : ''} ${u}</b></div>`;
       setHTML('td-nut-b', isNum(x.kcal) ? `
         <div class="statline"><span>Calories</span><b>${nf(x.kcal, 0)}${tg ? ' / ' + nf(tg.kcal, 0) : ''} kcal ${isNum(nut) ? `· score ${nf(nut, 0)}` : ''}</b></div>
-        ${macro('Protéines', x.prot, tg && tg.prot, T.s[0], 'g')}${macro('Glucides', x.carb, tg && tg.carb, T.nutri, 'g')}${macro('Lipides', x.fat, tg && tg.fat, T.s[2], 'g')}
+        ${macro('Protéines', x.prot, tg && tg.prot, T.s[0], 'g')}${macro('Glucides', x.carb, tg && tg.carb, T.s[1], 'g')}${macro('Lipides', x.fat, tg && tg.fat, T.s[2], 'g')}
         <div class="statline"><span>Protéines / kg</span><b>${isNum(x.prot) && isNum(x.trendW) ? nf(x.prot / x.trendW, 2) : '—'} g/kg</b></div>
         <div class="statline"><span>Fibres · caféine</span><b>${nf(x.fiber, 0)} g · ${nf(x.caffeine, 0)} mg</b></div>
-        ${isNum(x.alcohol) && x.alcohol > 0 ? `<div class="statline"><span>Alcool</span><b style="color:${T.warn}">${nf(x.alcohol, 0)} g</b></div>` : ''}
+        ${isNum(x.alcohol) && x.alcohol > 0 ? `<div class="statline"><span>Alcool</span><b style="color:${T.warnInk}">${nf(x.alcohol, 0)} g</b></div>` : ''}
         ${!lg ? `<p class="note">Journée sous le seuil de log partiel (${nf(SD.partialKcal(), 0)} kcal) : exclue des moyennes.</p>` : ''}
         ${isNum(x.tdee) ? `<div class="statline"><span>Balance vs dépense MacroFactor</span><b>${sgn(x.kcal - x.tdee, 0)} kcal</b></div>` : ''}` : '<div class="empty">Rien de loggé dans MacroFactor ce jour-là.</div>');
       const ht = SD.scores.hydroTarget(x), hTot = SD.scores.hydroTotal(x), dr = SD.scores.drinks(x);
       document.getElementById('td-nut-b').insertAdjacentHTML('beforeend', `<div class="statline" style="margin-top:6px"><span>Hydratation</span><b>${isNum(hTot) ? `${nf(hTot / 1000, 1)} / ${nf(ht / 1000, 1)} L` : `cible ${ht ? nf(ht / 1000, 1) + ' L' : '—'}`}</b></div>
-        ${isNum(hTot) ? `<div class="bar2"><i style="width:${Math.min(100, (hTot / ht) * 100)}%;background:${T.s[0]}"></i></div><p class="note">Dont ${nf(dr / 1000, 1)} L de boissons notées et ${nf((x.water || 0) / 1000, 1)} L d’eau des aliments.</p>`
+        ${isNum(hTot) ? `<div class="bar2"><i style="width:${Math.min(100, (hTot / ht) * 100)}%;background:${T.hydro}"></i></div><p class="note">Dont ${nf(dr / 1000, 1)} L de boissons notées et ${nf((x.water || 0) / 1000, 1)} L d’eau des aliments.</p>`
           : `<p class="note">Boissons non notées ce jour-là${isNum(x.water) ? ` (eau des aliments : ${nf(x.water / 1000, 2)} L)` : ''}. Note-les dans Apple Santé (widget ou raccourci « Eau ») pour les suivre ici.</p>`}`);
 
       // ---- journal

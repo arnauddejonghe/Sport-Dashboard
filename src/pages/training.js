@@ -9,15 +9,15 @@
     id: 'training', title: 'Entraînement', sub: 'Ta charge quotidienne, l’équilibre charge aiguë / chronique et la régularité de tes séances.',
     html() {
       return `<div class="kpis" id="tr-k"></div>
-        ${card('c12', 'tr-strain', 'Charge quotidienne (0–100)', 'Effort cardio (calories actives) + temps de musculation, à rendement décroissant : 100 = effort maximal · 50–69 modérée, 70–84 élevée, 85+ très élevée', '', { h: 'tall' })}
-        ${card('c6', 'tr-acwr', 'Charge aiguë / chronique', 'Moyenne exponentielle 7 j ÷ 28 j · zone optimale 0,8–1,3, risque au-delà de 1,5 (Gabbett 2016)')}
-        ${card('c6', 'tr-zones', 'Répartition des charges', '')}
-        ${card('c12', 'tr-vol', 'Volume d’activité', '', '', { h: 'tall' })}
-        ${card('c6', 'tr-dur', 'Durée des séances de musculation', 'Chaque point = une séance · ligne = médiane glissante sur 7 séances')}
-        ${card('c6', 'tr-split', 'Split détecté', 'D’après les groupes musculaires (MacroFactor) ou les noms d’exercices')}
-        ${card('c6', 'tr-splitwd', 'Quel split, quel jour', 'Nombre de séances par jour de semaine et par split')}
-        ${card('c6', 'tr-hour', 'Heure de début', 'Séances TrainAI (févr. 2024 → avr. 2025)')}
-        ${card('c12', 'tr-log', 'Journal des séances', 'Clic sur une ligne pour le détail du jour', '', { table: false, body: '<div class="tbl-wrap tbl-scroll" id="tr-log-b"></div>' })}`;
+        ${card('c12', 'tr-strain', 'Charge quotidienne (0–100)', 'Effort cardio (calories actives) + temps de musculation, à rendement décroissant : 100 = effort maximal · 50–69 modérée, 70–84 élevée, 85+ très élevée', '', { icon: 'zap', tone: 'strain', h: 'tall' })}
+        ${card('c6', 'tr-acwr', 'Charge aiguë / chronique', 'Moyenne exponentielle 7 j ÷ 28 j · zone optimale 0,8–1,3, risque au-delà de 1,5 (Gabbett 2016)', '', { icon: 'gauge', tone: 'strain' })}
+        ${card('c6', 'tr-zones', 'Répartition des charges', '', '', { icon: 'list', tone: 'strain' })}
+        ${card('c12', 'tr-vol', 'Volume d’activité', '', '', { icon: 'clock', tone: 'act', h: 'tall' })}
+        ${card('c6', 'tr-dur', 'Durée des séances de musculation', 'Chaque point = une séance · ligne = médiane glissante sur 7 séances', '', { icon: 'clock', tone: 'strain' })}
+        ${card('c6', 'tr-split', 'Split détecté', 'D’après les groupes musculaires (MacroFactor) ou les noms d’exercices', '', { icon: 'dumbbell', tone: 'strain' })}
+        ${card('c6', 'tr-splitwd', 'Quel split, quel jour', 'Nombre de séances par jour de semaine et par split', '', { icon: 'calendar', tone: 'strain' })}
+        ${card('c6', 'tr-hour', 'Heure de début', 'Séances TrainAI (févr. 2024 → avr. 2025)', '', { icon: 'clock', tone: 'accent' })}
+        ${card('c12', 'tr-log', 'Journal des séances', 'Clic sur une ligne pour le détail du jour', '', { icon: 'journal', tone: 'accent', table: false, body: '<div class="tbl-wrap tbl-scroll" id="tr-log-b"></div>' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
@@ -33,15 +33,16 @@
       const st = mean(pluck(F.full, (x) => x.strain)), pSt = mean(pluck(F.prevFull, (x) => x.strain));
       const last = [...F.full].reverse().find((x) => isNum(x.acwr));
       setHTML('tr-k', [
-        kpi({ label: 'Séances de muscu', value: sess, delta: prevDelta(sess, pSess), deltaDigits: 0, good: 'up', ctx: `${nf(sess / (F.len / 7), 1)} par semaine`, color: T.strain }),
-        kpi({ label: 'Charge moyenne', value: st, digits: 0, unit: '/ 100', delta: prevDelta(st, pSt), deltaDigits: 0, good: null, ctx: 'par jour', color: T.strain }),
-        kpi({ label: 'Ratio aigu / chronique', value: last ? last.acwr : null, digits: 2, ctx: last ? `au ${fdM(last.d)}` : '', status: last ? ' ' + (last.acwr > 1.5 ? '<span class="status crit">Risque</span>' : last.acwr > 1.3 ? '<span class="status warn">Vigilance</span>' : last.acwr >= 0.8 ? '<span class="status good">Optimal</span>' : '<span class="status warn">Sous-charge</span>') : '', color: T.strain }),
-        kpi({ label: 'Semaines à l’objectif', value: counts.length ? (hit / counts.length) * 100 : null, unit: '%', ctx: `${hit} / ${counts.length} semaines ≥ ${cfg.sessionsPerWeek} séances · série record ${best}`, meter: counts.length ? (hit / counts.length) * 100 : null, color: T.strain }),
-        kpi({ label: 'Durée médiane', value: median(durs), fmt: fHM, delta: prevDelta(median(durs), median(pDurs)), deltaFmt: (v) => `${sgn(v, 0)} min`, good: null, ctx: `${durs.length} séances chronométrées`, color: T.strain }),
+        kpi({ icon: 'dumbbell', label: 'Séances de muscu', value: sess, delta: prevDelta(sess, pSess), deltaDigits: 0, good: 'up', ctx: `${nf(sess / (F.len / 7), 1)} par semaine`, color: T.strain }),
+        kpi({ icon: 'zap', label: 'Charge moyenne', value: st, digits: 0, unit: '/ 100', delta: prevDelta(st, pSt), deltaDigits: 0, good: null, ctx: 'par jour', color: T.strain }),
+        kpi({ icon: 'gauge', label: 'Ratio aigu / chronique', value: last ? last.acwr : null, digits: 2, ctx: last ? `au ${fdM(last.d)}` : '', status: last ? ' ' + (last.acwr > 1.5 ? '<span class="status crit">Risque</span>' : last.acwr > 1.3 ? '<span class="status warn">Vigilance</span>' : last.acwr >= 0.8 ? '<span class="status good">Optimal</span>' : '<span class="status warn">Sous-charge</span>') : '', color: T.strain }),
+        kpi({ icon: 'target', label: 'Semaines à l’objectif', value: counts.length ? (hit / counts.length) * 100 : null, unit: '%', ctx: `${hit} / ${counts.length} semaines ≥ ${cfg.sessionsPerWeek} séances · série record ${best}`, meter: counts.length ? (hit / counts.length) * 100 : null, color: T.strain }),
+        kpi({ icon: 'clock', label: 'Durée médiane', value: median(durs), fmt: fHM, delta: prevDelta(median(durs), median(pDurs)), deltaFmt: (v) => `${sgn(v, 0)} min`, good: null, ctx: `${durs.length} séances chronométrées`, color: T.strain }),
       ].join(''));
 
       // ---- charge
-      const zc = (v) => (v >= 85 ? '#0b5fb8' : v >= 70 ? T.strain : v >= 50 ? '#6cb8ff' : '#a9d3ff');
+      // niveaux de charge : rampe ordinale d'une seule teinte (légère → très élevée)
+      const zc = (v) => (v >= 85 ? T.zone[3] : v >= 70 ? T.zone[2] : v >= 50 ? T.zone[1] : T.zone[0]);
       ts('tr-strain', { name: 'Charge', get: (x) => x.strain, color: T.strain, unit: '', digits: 0, type: 'bar', colorOf: (x) => zc(x.strain), baseKey: 'strain', yExtra: { min: 0, max: 100, interval: 25 }, onDay: SD.openDay,
         foot: (x) => `${isNum(x.activeKcal) ? nf(x.activeKcal, 0) + ' kcal actives' : ''}${x.train ? ` · muscu ${fHM(x.strMin)}` : ''}${isNum(x.rec) ? ` · récup ${nf(x.rec, 0)} %` : ''}` });
 
@@ -53,13 +54,13 @@
         tooltip: Object.assign(base().tooltip, { formatter: axisTip({ Ratio: (v) => `${nf(v, 2)} ${v > 1.5 ? '· risque' : v > 1.3 ? '· vigilance' : v >= 0.8 ? '· optimal' : '· sous-charge'}` }) }),
         toolbox: SD.toolbox(), dataZoom: SD.zoom(),
         xAxis: SD.xTime(), yAxis: yVal({ min: 0.4, max: (v) => Math.max(1.8, Math.ceil(v.max * 10) / 10) }),
-        series: [line('Ratio', ac, T.strain, { lineStyle: { width: 2.5, color: T.strain }, markArea: { silent: true, label: { color: T.muted, fontSize: 10.5, position: 'insideRight' }, data: [band(0.4, 0.8, 'rgba(46,155,255,0.06)', 'sous-charge'), band(0.8, 1.3, 'rgba(30,215,135,0.08)', 'optimal'), band(1.3, 1.5, 'rgba(246,195,67,0.09)', 'vigilance'), band(1.5, 3, 'rgba(255,79,100,0.09)', 'risque')] } })],
+        series: [line('Ratio', ac, T.strain, { lineStyle: { width: 2.5, color: T.strain }, markArea: { silent: true, label: { color: T.muted, fontSize: 10.5, position: 'insideRight' }, data: [band(0.4, 0.8, T.wash.accent, 'sous-charge'), band(0.8, 1.3, T.wash.good, 'optimal'), band(1.3, 1.5, T.wash.warn, 'vigilance'), band(1.5, 3, T.wash.crit, 'risque')] } })],
       }) : base(SD.emptyOpt('Il faut 28 jours de charge pour calculer le ratio')), () => ({ cols: ['Date', 'Aiguë', 'Chronique', 'Ratio'], rows: F.full.filter((x) => isNum(x.acwr)).map((x) => [fdM(x.d), nf(x.acute, 1), nf(x.chronic, 1), nf(x.acwr, 2)]) }));
 
       // ---- zones de charge (un comptage par jour n'a pas de sens : au minimum par semaine)
       const g = SD.gran(), keys = SD.bucketKeys(g);
       const gz = g === 'day' ? 'week' : g, kz = SD.bucketKeys(gz);
-      const ZN = [['Légère', (v) => v < 50, '#a9d3ff'], ['Modérée', (v) => v >= 50 && v < 70, '#6cb8ff'], ['Élevée', (v) => v >= 70 && v < 85, T.strain], ['Très élevée', (v) => v >= 85, '#0b5fb8']];
+      const ZN = [['Légère', (v) => v < 50, T.zone[0]], ['Modérée', (v) => v >= 50 && v < 70, T.zone[1]], ['Élevée', (v) => v >= 70 && v < 85, T.zone[2]], ['Très élevée', (v) => v >= 85, T.zone[3]]];
       const zz = kz.map((k2) => { const end = SD.bucketEnd(k2, gz); const v = F.full.filter((x) => x.d >= k2 && x.d <= end).map((x) => x.strain).filter(isNum); return ZN.map(([, f]) => v.filter(f).length); });
       setText('tr-zones-s', `Nombre de jours par niveau de charge et par ${SD.granUnit(gz)}`);
       chart('tr-zones', base({
@@ -140,7 +141,7 @@
         const vol = sum(pluck(x.ex, (e) => e.vol)), sets = sum(pluck(x.ex, (e) => e.sets));
         const notes = M.raw.notes.filter((n) => n.d === x.d);
         const nx = M.at(addD(x.d, 1));
-        return `<tr class="clickable" data-day="${x.d}"><td>${esc(fdate(x.d, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' }))}</td><td>${esc(x.w.map((w) => w.type).join(', '))}</td><td>${esc(x.split || '')}</td><td class="num">${esc(x.train ? fHM(x.strMin) : '')}</td><td class="num">${nf(x.strain, 0)}</td><td class="num" style="color:${nx && isNum(nx.rec) ? SD.recColor(nx.rec) : 'inherit'}">${nx && isNum(nx.rec) ? nf(nx.rec, 0) + ' %' : '—'}</td><td class="num">${x.ex.length || ''}</td><td class="num">${sets || ''}</td><td class="num">${vol ? nf(vol, 0) + ' kg' : ''}</td><td>${notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : ''}${x.ex.some((e) => e.pr) ? ' · <b style="color:var(--good)">PR</b>' : ''}</td></tr>`;
+        return `<tr class="clickable" data-day="${x.d}"><td>${esc(fdate(x.d, { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' }))}</td><td>${esc(x.w.map((w) => w.type).join(', '))}</td><td>${esc(x.split || '')}</td><td class="num">${esc(x.train ? fHM(x.strMin) : '')}</td><td class="num">${nf(x.strain, 0)}</td><td class="num" style="color:${nx && isNum(nx.rec) ? SD.recInk(nx.rec) : 'inherit'}">${nx && isNum(nx.rec) ? nf(nx.rec, 0) + ' %' : '—'}</td><td class="num">${x.ex.length || ''}</td><td class="num">${sets || ''}</td><td class="num">${vol ? nf(vol, 0) + ' kg' : ''}</td><td>${notes.length ? `${notes.length} note${notes.length > 1 ? 's' : ''}` : ''}${x.ex.some((e) => e.pr) ? ' · <b style="color:var(--good-ink)">PR</b>' : ''}</td></tr>`;
       }).join('')}</tbody></table>` : '<div class="empty">Aucune séance sur la période.</div>');
     },
   };

@@ -4,13 +4,13 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fdM, fdS, esc, tms, addD, pluck, mean, median, chart, base, tipBox, axisTip, xCat, yVal, line, kpi, spark, ts } = SD;
-  const { card, seg, setHTML, setText } = SD.ui;
+  const { card, hic, seg, setHTML, setText } = SD.ui;
 
   // ================================================================ composition : poids, masse grasse, masse maigre (un seul graphique)
   const COMP = [
     { k: 'w', l: 'Poids', raw: 'weight', tr: 'trendW', u: 'kg', ax: 0, col: (T) => T.s[0] },
-    { k: 'bf', l: 'Masse grasse', raw: 'bodyFat', tr: 'bfT', u: '%', ax: 1, col: (T) => T.body },
-    { k: 'lean', l: 'Masse maigre', raw: 'lean', tr: 'leanT', u: 'kg', ax: 0, col: (T) => T.act },
+    { k: 'bf', l: 'Masse grasse', raw: 'bodyFat', tr: 'bfT', u: '%', ax: 1, col: (T) => T.s[1] },
+    { k: 'lean', l: 'Masse maigre', raw: 'lean', tr: 'leanT', u: 'kg', ax: 0, col: (T) => T.s[2] },
   ];
   function compChart(id) {
     const { F, S, T, M } = SD;
@@ -155,14 +155,15 @@
     html() {
       const S = SD.S;
       return `<div class="kpis" id="ph-k"></div>
-        ${card('c12', 'ph-comp', 'Poids, masse grasse & masse maigre', '', `<div class="seg" id="ph-comp-seg" role="group">${COMP.map((c) => `<button type="button" data-comp="${c.k}" aria-pressed="${(S.compShow || []).includes(c.k)}">${c.l}</button>`).join('')}</div>`, { h: 'xtall' })}
-        <section class="card c12" id="ph-photos"><div class="card-h"><div><h2>Photos avant / après</h2><p class="sub" id="ph-photos-s"></p></div>
+        ${card('c12', 'ph-comp', 'Poids, masse grasse & masse maigre', '', `<div class="seg" id="ph-comp-seg" role="group">${COMP.map((c) => `<button type="button" data-comp="${c.k}" aria-pressed="${(S.compShow || []).includes(c.k)}">${c.l}</button>`).join('')}</div>`, { icon: 'scale', tone: 'body', h: 'xtall' })}
+        <section class="card c12 cmpbar" id="ph-cmp"></section>
+        <section class="card c12" id="ph-photos"><div class="card-h"><div><h2>${hic('physique', 'body')}Photos avant / après</h2><p class="sub" id="ph-photos-s"></p></div>
           <div class="card-tools">${seg('photoPose', [['all', 'Toutes'], ['Face', 'Face'], ['Profil', 'Profil'], ['Dos', 'Dos']], S.photoPose)}${seg('photoMode', [['side', 'Côte à côte'], ['slider', 'Curseur']], S.photoMode)}
             <label class="btn" for="ph-file">Depuis l’appareil</label><input type="file" id="ph-file" accept="image/*" multiple hidden></div></div>
           <div id="ph-photos-b"></div></section>
-        <section class="card c12"><div class="card-h"><div><h2>Mensurations</h2><p class="sub" id="ph-meas-s"></p></div></div><div id="ph-ratios" class="ratios"></div><div id="ph-meas-b" class="mgrid"></div></section>
-        ${card('c12', 'ph-mchart', 'Évolution d’une mesure', 'Tout l’historique MacroFactor · clic sur une tuile ci-dessus pour changer de mesure', '<select class="fselect" id="ph-meas-sel" data-state="measure" aria-label="Mesure"></select>', { h: 'short' })}
-        <section class="card c12"><div class="card-h"><div><h2>Ce qui fait bouger ton physique</h2><p class="sub" id="ph-lev-s"></p></div><div class="card-tools">${seg('lever', [['trend', 'Poids'], ['fat', 'Masse grasse'], ['strength', 'Force']], S.lever)}</div></div>
+        <section class="card c12"><div class="card-h"><div><h2>${hic('ruler', 'body')}Mensurations</h2><p class="sub" id="ph-meas-s"></p></div></div><div id="ph-ratios" class="ratios"></div><div id="ph-meas-b" class="mgrid"></div></section>
+        ${card('c12', 'ph-mchart', 'Évolution d’une mesure', 'Tout l’historique MacroFactor · clic sur une tuile ci-dessus pour changer de mesure', '<select class="fselect" id="ph-meas-sel" data-state="measure" aria-label="Mesure"></select>', { icon: 'ruler', tone: 'body', h: 'short' })}
+        <section class="card c12"><div class="card-h"><div><h2>${hic('trend', 'body')}Ce qui fait bouger ton physique</h2><p class="sub" id="ph-lev-s"></p></div><div class="card-tools">${seg('lever', [['trend', 'Poids'], ['fat', 'Masse grasse'], ['strength', 'Force']], S.lever)}</div></div>
           <div class="lev"><div class="chart tall" id="ph-lev"></div><div id="ph-lev-b" class="lev-list"></div></div></section>`;
     },
     update() {
@@ -172,20 +173,21 @@
       const a = tw[0], b = tw[tw.length - 1];
       const wks = a && b ? (SD.nDays(a.d, b.d) - 1) / 7 : 0;
       const rate = wks >= 1 ? (b.trendW - a.trendW) / wks : null;
-      const phase = (M.at(S.to) || {}).phase;
-      const rt = phase && cfg.weeklyRate && cfg.weeklyRate[phase];
+      const ptg = b ? SD.phaseTarget(b.d, b.trendW) : null;
+      const phase = ptg ? ptg.name : (M.at(S.to) || {}).phase;
+      const rt = ptg && isNum(ptg.lo) ? [ptg.lo, ptg.hi] : null;
       const bf = F.days.filter((x) => isNum(x.bodyFat));
       const waistL = nearestBody('Tour de taille', S.to, 3650), shL = nearestBody('Épaules', S.to, 3650);
       const waistF = M.raw.body.find((x) => x.d >= S.from && isNum(x['Tour de taille']));
       const hCm = M.raw.profile && M.raw.profile.heightCm;
       const adonis = waistL && shL && shL.d === waistL.d ? shL['Épaules'] / waistL['Tour de taille'] : null;
       setHTML('ph-k', [
-        kpi({ label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: null, ctx: b ? `Source : ${b.trendSrc === 'MacroFactor' ? 'Trend Weight MacroFactor' : 'moyenne des pesées'}` : '', color: T.body }),
-        kpi({ label: 'Rythme', value: rate, digits: 2, unit: 'kg/sem', fmt: (v) => sgn(v, 2), ctx: phase ? `Phase ${esc(phase)}${rt ? ` · cible ${sgn(rt[0], 2)} à ${sgn(rt[1], 2)}` : ''}` : '', status: rt && isNum(rate) ? ' ' + (rate < rt[0] ? '<span class="status warn">Sous la cible</span>' : rate > rt[1] ? '<span class="status warn">Au-dessus</span>' : '<span class="status good">Dans la cible</span>') : '', color: T.body }),
-        kpi({ label: 'Masse grasse', value: bf.length ? bf[bf.length - 1].bodyFat : null, unit: '%', digits: 1, delta: bf.length >= 2 ? bf[bf.length - 1].bodyFat - bf[0].bodyFat : null, deltaFmt: (v) => `${sgn(v, 1)} pt sur la période`, deltaLabel: '', good: 'down', color: T.body }),
-        kpi({ label: 'Masse maigre', value: (F.days.filter((x) => isNum(x.leanT)).slice(-1)[0] || {}).leanT, unit: 'kg', digits: 1, delta: (() => { const l = F.days.filter((x) => isNum(x.leanT)); return l.length >= 2 ? l[l.length - 1].leanT - l[0].leanT : null; })(), deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: 'up', ctx: 'Tendance lissée de la balance', color: T.act }),
-        kpi({ label: 'Tour de taille', value: waistL ? waistL['Tour de taille'] : null, unit: 'cm', digits: 1, delta: waistL && waistF && waistF !== waistL ? waistL['Tour de taille'] - waistF['Tour de taille'] : null, deltaFmt: (v) => `${sgn(v, 1)} cm sur la période`, deltaLabel: '', good: 'down', ctx: waistL ? `Mesuré le ${esc(fdM(waistL.d))}${hCm ? ` · taille/hauteur ${nf(waistL['Tour de taille'] / hCm, 2)}` : ''}` : '', color: T.body }),
-        kpi({ label: 'Épaules / taille', value: adonis, digits: 2, ctx: adonis ? `Idéal esthétique ≈ 1,6 (« indice d’Adonis ») · ${esc(fdM(waistL.d))}` : 'Mesure les épaules et la taille le même jour', meter: adonis ? Math.min(100, (adonis / 1.618) * 100) : null, color: T.body }),
+        kpi({ icon: 'scale', label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: null, ctx: b ? `Source : ${b.trendSrc === 'MacroFactor' ? 'Trend Weight MacroFactor' : 'moyenne des pesées'}` : '', color: T.body }),
+        kpi({ icon: 'trend', label: 'Rythme', value: rate, digits: 2, unit: 'kg/sem', fmt: (v) => sgn(v, 2), ctx: phase ? `Phase ${esc(phase)}${rt ? ` · cible ${sgn(rt[0], 2)} à ${sgn(rt[1], 2)}` : ''}` : '', status: rt && isNum(rate) ? ' ' + (rate < rt[0] ? '<span class="status warn">Sous la cible</span>' : rate > rt[1] ? '<span class="status warn">Au-dessus</span>' : '<span class="status good">Dans la cible</span>') : '', color: T.body }),
+        kpi({ icon: 'percent', label: 'Masse grasse', value: bf.length ? bf[bf.length - 1].bodyFat : null, unit: '%', digits: 1, delta: bf.length >= 2 ? bf[bf.length - 1].bodyFat - bf[0].bodyFat : null, deltaFmt: (v) => `${sgn(v, 1)} pt sur la période`, deltaLabel: '', good: 'down', color: T.body }),
+        kpi({ icon: 'muscle', label: 'Masse maigre', value: (F.days.filter((x) => isNum(x.leanT)).slice(-1)[0] || {}).leanT, unit: 'kg', digits: 1, delta: (() => { const l = F.days.filter((x) => isNum(x.leanT)); return l.length >= 2 ? l[l.length - 1].leanT - l[0].leanT : null; })(), deltaFmt: (v) => `${sgn(v, 1)} kg sur la période`, deltaLabel: '', good: 'up', ctx: 'Tendance lissée de la balance', color: T.act }),
+        kpi({ icon: 'ruler', label: 'Tour de taille', value: waistL ? waistL['Tour de taille'] : null, unit: 'cm', digits: 1, delta: waistL && waistF && waistF !== waistL ? waistL['Tour de taille'] - waistF['Tour de taille'] : null, deltaFmt: (v) => `${sgn(v, 1)} cm sur la période`, deltaLabel: '', good: 'down', ctx: waistL ? `Mesuré le ${esc(fdM(waistL.d))}${hCm ? ` · taille/hauteur ${nf(waistL['Tour de taille'] / hCm, 2)}` : ''}` : '', color: T.body }),
+        kpi({ icon: 'vshape', label: 'Épaules / taille', value: adonis, digits: 2, ctx: adonis ? `Idéal esthétique ≈ 1,6 (« indice d’Adonis ») · ${esc(fdM(waistL.d))}` : 'Mesure les épaules et la taille le même jour', meter: adonis ? Math.min(100, (adonis / 1.618) * 100) : null, color: T.body }),
       ].join(''));
 
       // ---- composition : un graphique, trois courbes au choix, projections sur la pente des 28 derniers jours
@@ -205,25 +207,30 @@
         };
       });
 
+      renderCmp();
+
       // ---- mensurations complètes (tout l'historique)
       const all = M.raw.body.slice().sort((p, q) => p.d.localeCompare(q.d));
       const keys = [...new Set(all.flatMap((x) => Object.keys(x).filter((k) => k !== 'd')))].sort((p, q) => (M_ORDER.indexOf(p) + 1 || 99) - (M_ORDER.indexOf(q) + 1 || 99));
       const dates = [...new Set(all.map((x) => x.d))];
-      setText('ph-meas-s', all.length ? `${keys.length} mesures, ${dates.length} relevés du ${fdM(dates[0])} au ${fdM(dates[dates.length - 1])} (MacroFactor) · écart depuis le 1er relevé et depuis le précédent` : 'Aucune mensuration : saisis-les dans MacroFactor (Body Metrics), elles arrivent avec l’export complet.');
+      setText('ph-meas-s', all.length ? `${keys.length} mesures, ${dates.length} relevés du ${fdM(dates[0])} au ${fdM(dates[dates.length - 1])} (MacroFactor) · valeur au ${fdM(cmpDates().b)} et écart depuis le ${fdM(cmpDates().a)} (dates de comparaison ci-dessus)` : 'Aucune mensuration : saisis-les dans MacroFactor (Body Metrics), elles arrivent avec l’export complet.');
       const series = (k) => all.filter((x) => isNum(x[k])).map((x) => [x.d, x[k]]);
       if (!keys.includes(S.measure)) S.measure = keys.includes('Tour de taille') ? 'Tour de taille' : keys[0];
       const pairOf = (k) => { const p = PAIRS.find((q) => q.includes(k)); return p ? p.find((q) => q !== k) : null; };
+      const cmp = cmpDates();
+      // relevé retenu pour une date : le dernier à cette date ou avant, sinon le premier après
+      const at = (s, d) => { let b = null; for (const q of s) { if (q[0] <= d) b = q; else break; } return b || s[0] || null; };
       setHTML('ph-meas-b', keys.map((k) => {
         const s = series(k);
-        const last = s[s.length - 1], first = s[0], prev = s[s.length - 2];
+        const a = at(s, cmp.a), b = at(s, cmp.b);
         const u = unitOf(k);
         const good = k === 'Tour de taille' || /%/.test(k) || k === 'Hanches' ? -1 : 1;
         const dl = (v) => (isNum(v) && Math.abs(v) >= 0.05 ? `<span class="delta ${v * good > 0 ? 'up-good' : 'down-bad'}">${sgn(v, 1)}</span>` : '<span class="delta flat">=</span>');
-        const other = pairOf(k), o = other ? series(other).find((q) => q[0] === last[0]) : null;
+        const other = pairOf(k), o = other && b ? series(other).find((q) => q[0] === b[0]) : null;
         return `<button type="button" class="mtile" data-measure="${esc(k)}" aria-pressed="${k === S.measure}"><span class="n">${esc(k.replace(' (%)', ''))}</span>
-          <span class="v">${nf(last[1], 1)}<small>${u}</small></span>
-          <span class="d">${first && s.length > 1 ? `${dl(last[1] - first[1])} depuis ${esc(fdate2(first[0]))}` : 'un seul relevé'}${prev ? ` · ${dl(last[1] - prev[1])} vs préc.` : ''}</span>
-          <span class="d">${esc(fdM(last[0]))}${o && /G$/.test(k) ? ` · écart G/D ${sgn(last[1] - o[1], 1)} cm` : ''}</span>
+          <span class="v">${nf(b[1], 1)}<small>${u}</small></span>
+          <span class="d">${a && b && a[0] !== b[0] ? `${dl(b[1] - a[1])} depuis le ${esc(fdM(a[0]))}` : s.length > 1 ? 'même relevé aux deux dates' : 'un seul relevé'}</span>
+          <span class="d">relevé du ${esc(fdM(b[0]))}${o && /G$/.test(k) ? ` · écart G/D ${sgn(b[1] - o[1], 1)} cm` : ''}</span>
           ${spark(s.map((q) => q[1]), T.body, 26)}</button>`;
       }).join('') || '<div class="empty">Aucune mensuration enregistrée.</div>');
       document.querySelectorAll('#ph-meas-b .mtile').forEach((el) => { el.onclick = () => { S.measure = el.dataset.measure; SD.refresh(); }; });
@@ -244,7 +251,8 @@
         tooltip: Object.assign(base().tooltip, { formatter: axisTip({ [S.measure]: (v) => nf(v, 1) + ' ' + unitOf(S.measure) }) }),
         xAxis: { type: 'time', axisLine: { lineStyle: { color: T.axis } }, axisTick: { show: false }, axisLabel: { color: T.muted, hideOverlap: true, formatter: (v) => fdS(SD.dstr(v)) + ' ' + SD.dstr(v).slice(2, 4) }, splitLine: { show: false } },
         yAxis: yVal({ scale: true, name: unitOf(S.measure) }),
-        series: [line(S.measure, mp.map((q) => [tms(q[0]), q[1]]), T.body, { showSymbol: true, symbolSize: 8 })],
+        series: [line(S.measure, mp.map((q) => [tms(q[0]), q[1]]), T.body, { showSymbol: true, symbolSize: 8,
+          markLine: { silent: true, symbol: 'none', lineStyle: { color: T.axis, type: 'dashed' }, label: { color: T.muted, fontSize: 11, formatter: (p) => p.name }, data: [{ xAxis: tms(cmpDates().a), name: 'avant' }, { xAxis: tms(cmpDates().b), name: 'après' }] } })],
       }) : base(SD.emptyOpt('Aucune mesure')), () => ({ cols: ['Date', S.measure], rows: mp.map((q) => [fdM(q[0]), nf(q[1], 1)]) }));
 
       // ---- leviers
@@ -277,6 +285,43 @@
 
   function fdate2(d) { return SD.fdate(d, { month: 'short', year: 'numeric' }); }
 
+  // ================================================================ dates de comparaison (photos et mensurations)
+  /** Dates « avant » et « après » : choisies par l'utilisateur, sinon premier et dernier relevé (mensurations ou photos) */
+  function cmpDates() {
+    const S = SD.S, M = SD.M;
+    const photos = ((SD.drive && SD.drive.photos) || []).concat(local).map((p) => p.d);
+    const all = M.raw.body.map((x) => x.d).concat(photos).sort();
+    const first = all[0] || M.first, last = all[all.length - 1] || M.last;
+    let a = S.cmpA || first, b = S.cmpB || last;
+    if (a > b) [a, b] = [b, a];
+    return { a, b, first, last, key: a + '|' + b };
+  }
+  function renderCmp() {
+    const S = SD.S, M = SD.M;
+    const el = document.getElementById('ph-cmp');
+    if (!el) return;
+    const c = cmpDates();
+    const rel = [...new Set(M.raw.body.map((x) => x.d))].sort();
+    const inRange = rel.filter((d) => d >= c.a && d <= c.b).length;
+    const presets = [['all', 'Tout'], ['y1', '12 mois'], ['m3', '3 mois'], ['m1', '1 mois'], ['phase', 'Phase en cours']];
+    el.innerHTML = `<div class="cmp-h"><h2>${hic('calendar', 'body')}Dates de comparaison</h2><span class="note">Photos et mensurations comparées entre ces deux dates (le relevé le plus proche de chaque date).</span></div>
+      <div class="cmp-row"><label>Avant<input type="date" class="field" id="ph-cmp-a" value="${esc(c.a)}" min="${esc(c.first)}" max="${esc(c.last)}"></label>
+        <label>Après<input type="date" class="field" id="ph-cmp-b" value="${esc(c.b)}" min="${esc(c.first)}" max="${esc(c.last)}"></label>
+        <div class="chips">${presets.map(([k, l]) => `<button type="button" class="chip" data-cmp="${k}">${l}</button>`).join('')}</div>
+        <span class="fsummary">${SD.nDays(c.a, c.b) - 1} jours · ${inRange} relevé${inRange > 1 ? 's' : ''} de mensurations entre les deux</span></div>`;
+    const set = (a, b) => { S.cmpA = a; S.cmpB = b; SD.saveState(); ph.key = null; SD.refresh({ keepScroll: true }); };
+    document.getElementById('ph-cmp-a').onchange = (e) => e.target.value && set(e.target.value, c.b);
+    document.getElementById('ph-cmp-b').onchange = (e) => e.target.value && set(c.a, e.target.value);
+    el.querySelectorAll('[data-cmp]').forEach((b) => {
+      b.onclick = () => {
+        const k = b.dataset.cmp;
+        if (k === 'all') { set(c.first, c.last); return; }
+        if (k === 'phase') { const p = SD.phaseAt(c.last); set(p && p.start > c.first ? p.start : c.first, c.last); return; }
+        set(addD(c.last, k === 'y1' ? -365 : k === 'm3' ? -91 : -30), c.last);
+      };
+    });
+  }
+
   function photoCtx(d) {
     const y = nearestDay(d, 'trendW', 3), f = nearestDay(d, 'bodyFat', 5), w = nearestBody('Tour de taille', d, 21);
     return { w: y ? y.trendW : null, bf: f ? f.bodyFat : null, waist: w ? w['Tour de taille'] : null };
@@ -305,9 +350,12 @@
       box.innerHTML = `<div class="empty">Aucune photo${S.photoPose !== 'all' ? ` « ${esc(S.photoPose)} »` : ''}. Ajoute des photos dans le sous-dossier « Photos » du Drive, ou compare deux photos de ton appareil avec « Depuis l’appareil » (elles restent dans ton navigateur).</div>`;
       return;
     }
-    // par défaut : la plus ancienne et la plus récente de la même pose
-    if (!ph.a || !L.includes(ph.a)) ph.a = L[0];
-    if (!ph.b || !L.includes(ph.b)) { const same = L.filter((p) => p.pose === ph.a.pose && p !== ph.a); ph.b = same.length ? same[same.length - 1] : L[L.length - 1]; }
+    // photos les plus proches des dates de comparaison (même pose pour « après » si possible)
+    const cmp = cmpDates();
+    const near = (pool, d) => pool.reduce((b, p) => (Math.abs(SD.nDays(p.d, d)) < Math.abs(SD.nDays(b.d, d)) ? p : b), pool[0]);
+    if (!ph.a || !L.includes(ph.a) || ph.key !== cmp.key) ph.a = near(L, cmp.a);
+    if (!ph.b || !L.includes(ph.b) || ph.key !== cmp.key) { const same = L.filter((p) => p.pose === ph.a.pose && p !== ph.a); ph.b = near(same.length ? same : L, cmp.b); }
+    ph.key = cmp.key;
     const pick = (side, cur) => `<select class="field psel" data-side="${side}" aria-label="Photo ${side === 'a' ? 'avant' : 'après'}">${L.map((p, i) => `<option value="${i}"${p === cur ? ' selected' : ''}>${esc(SD.fdate(p.d, { day: 'numeric', month: 'short', year: 'numeric' }))}${p.pose !== 'Autre' ? ` · ${esc(p.pose)}` : ` · ${esc(String(p.title || '').replace(/\.[a-z0-9]+$/i, ''))}`}${p.dated === 'created' ? ' (date d’ajout)' : ''}${p.local ? ' · appareil' : ''}</option>`).join('')}</select>`;
     const quick = (side) => `<div class="pquick">${[['first', 'Plus ancienne'], ['m3', '−3 mois'], ['m1', '−1 mois'], ['last', 'Plus récente']].map(([k, l]) => `<button type="button" class="chip" data-q="${k}" data-side="${side}">${l}</button>`).join('')}</div>`;
     const ca = photoCtx(ph.a.d), cb = photoCtx(ph.b.d);
@@ -318,7 +366,9 @@
       <div class="pdiff">Écart : <b>${days} jours</b> · poids ${diff(ca.w, cb.w, 'kg', 1, 0)} · masse grasse ${diff(ca.bf, cb.bf, 'pt', 1, -1)} · taille ${diff(ca.waist, cb.waist, 'cm', 1, -1)}</div>
       ${S.photoMode === 'slider' ? `<div class="pslider"><img id="ph-img-a" alt="Avant"><div class="ptop" id="ph-top"><img id="ph-img-b" alt="Après"></div><input type="range" id="ph-cut" min="0" max="100" value="50" aria-label="Curseur avant / après"></div><div class="pgrid">${`<figure class="pfig">${cap(ph.a, ca)}</figure><figure class="pfig">${cap(ph.b, cb)}</figure>`}</div>`
         : `<div class="pgrid"><figure class="pfig"><div class="pimg"><img id="ph-img-a" alt="Photo avant"></div>${cap(ph.a, ca)}</figure><figure class="pfig"><div class="pimg"><img id="ph-img-b" alt="Photo après"></div>${cap(ph.b, cb)}</figure></div>`}`;
-    box.querySelectorAll('.psel').forEach((el) => { el.onchange = () => { ph[el.dataset.side] = L[+el.value]; renderPhotos(); }; });
+    // choisir une photo cale la date de comparaison correspondante (mensurations comprises)
+    const setSide = (side, p) => { ph[side] = p; S[side === 'a' ? 'cmpA' : 'cmpB'] = p.d; SD.saveState(); ph.key = cmpDates().key; SD.refresh({ keepScroll: true }); };
+    box.querySelectorAll('.psel').forEach((el) => { el.onchange = () => setSide(el.dataset.side, L[+el.value]); });
     box.querySelectorAll('.pquick [data-q]').forEach((el) => {
       el.onclick = () => {
         const side = el.dataset.side, other = ph[side === 'a' ? 'b' : 'a'];
@@ -326,8 +376,7 @@
         const pool = same.length ? same : L;
         const ref = (other || pool[pool.length - 1]).d;
         const near = (d) => pool.reduce((b, p) => (Math.abs(SD.nDays(p.d, d)) < Math.abs(SD.nDays(b.d, d)) ? p : b), pool[0]);
-        ph[side] = el.dataset.q === 'first' ? pool[0] : el.dataset.q === 'last' ? pool[pool.length - 1] : near(addD(ref, el.dataset.q === 'm3' ? -91 : -30));
-        renderPhotos();
+        setSide(side, el.dataset.q === 'first' ? pool[0] : el.dataset.q === 'last' ? pool[pool.length - 1] : near(addD(ref, el.dataset.q === 'm3' ? -91 : -30)));
       };
     });
     const cut = document.getElementById('ph-cut');

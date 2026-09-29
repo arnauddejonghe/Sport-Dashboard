@@ -3,7 +3,7 @@
   'use strict';
   const SD = window.SD;
   const { isNum, nf, sgn, fH, fdM, fdS, esc, pluck, mean, median, chart, base, tipBox, xCat, yVal, ring, kpi } = SD;
-  const { card, seg, setHTML, setText, avgOf, prevDelta } = SD.ui;
+  const { card, hic, seg, setHTML, setText, avgOf, prevDelta } = SD.ui;
 
   const PAGE_OF = { recovery: 'recovery', sleep: 'recovery', training: 'training', nutrition: 'body', activity: 'recovery', body: 'body' };
 
@@ -16,21 +16,65 @@
     };
   }
 
+  let phaseEdit = false;
+  /** Objectif en cours : phase MacroFactor (ou saisie), rythme visé, cohérence avec les cibles actuelles */
+  function renderPhase() {
+    const { M } = SD;
+    const el = document.getElementById('ov-phase');
+    if (!el) return;
+    const today = new Date().toLocaleDateString('sv-SE');
+    const ref = today > M.last ? M.last : today;
+    const ck = SD.phaseCheck(M, today);
+    const lastTw = [...M.days].reverse().find((x) => isNum(x.trendW));
+    const pt = lastTw ? SD.phaseTarget(ref, lastTw.trendW) : null;
+    const ov = SD.prefs.get('phase', null);
+    const p = ck.phase;
+    const who = p ? (p.src === 'manuel' ? 'saisi dans le dashboard' : p.src === 'config' ? 'configuration' : `MacroFactor${ck.full ? `, export complet du ${fdM(ck.full)}` : ''}`) : '';
+    const t = ck.target;
+    let html = `<div class="ph-line"><span class="pill"><span class="dot" style="background:${p ? SD.phaseColor(p.name) : SD.T.muted}"></span>Objectif en cours <b>${p ? esc(p.name) : 'inconnu'}</b></span>
+      <span class="ph-txt">${p ? `depuis le ${esc(fdM(p.start))} · ${esc(who)}` : 'aucun objectif de poids dans tes exports MacroFactor'}${pt && isNum(pt.lo) ? ` · rythme visé ${sgn(pt.lo, 2)} à ${sgn(pt.hi, 2)} kg/sem (${esc(pt.src)})` : ''}</span>
+      <button type="button" class="link" id="ov-phase-edit">${phaseEdit ? 'Fermer' : 'Modifier'}</button></div>`;
+    if (t) html += `<p class="note">Cibles actuelles : <b>${nf(t.kcal, 0)} kcal</b> (${t.src === 'programme' ? `programme du ${fdM(t.from)}` : `MacroFactor, ${fdM(t.from)}`})${isNum(ck.bal) ? `, soit ${sgn(ck.bal, 0)} kcal/j par rapport à ta dépense estimée (${nf(ck.tdee, 0)} kcal) : ${ck.implied === 'Prise de masse' ? 'surplus' : ck.implied === 'Sèche' ? 'déficit' : 'équilibre'}` : ''}.</p>`;
+    if (ck.changed && (!ov || !ov.name)) html += `<div class="alert warn"><b>Cibles changées après ton dernier export complet</b>Tes cibles MacroFactor sont passées à ${nf(t.kcal, 0)} kcal le ${esc(fdM(ck.since || t.from))}, après ton export complet du ${esc(fdM(ck.full))} (le seul qui contient tes objectifs de poids). Si ton objectif a changé, fais un export complet dans MacroFactor ou indique-le ici avec « Modifier ».</div>`;
+    else if (ck.mismatch) html += `<div class="alert warn"><b>Objectif et cibles ne concordent pas</b>Tes cibles actuelles correspondent plutôt à : ${esc(ck.implied)}. Vérifie ton objectif dans MacroFactor (export complet) ou indique-le ici.</div>`;
+    if (phaseEdit) {
+      const cur = ov && ov.name ? ov.name : '';
+      html += `<form class="ph-form" onsubmit="return false"><label>Objectif<select class="fselect" name="pname"><option value=""${!cur ? ' selected' : ''}>Automatique (MacroFactor)</option>${['Prise de masse', 'Maintien', 'Sèche'].map((n) => `<option${n === cur ? ' selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label>Depuis le<input type="date" class="field" name="pstart" value="${esc((ov && ov.start) || (ck.changed && t ? ck.since || t.from : today))}"></label>
+        <label>Rythme (% du poids / sem)<input type="number" class="field" name="prate" step="0.05" min="0" max="2" placeholder="ex. 0,25" value="${ov && isNum(ov.rate) ? ov.rate : ''}"></label>
+        <button type="button" class="btn primary" id="ov-phase-save">Enregistrer</button><span class="fsummary" id="ov-phase-st">${SD.prefs.mode === 'db' ? 'Partagé entre tes appareils' : 'Enregistré dans ce navigateur'}</span></form>
+        <p class="note">« Automatique » reprend les objectifs de poids de ton dernier export complet MacroFactor. Le rythme sert au pilier Corps (±40 %) ; laisse vide pour garder celui de MacroFactor ou de la configuration.</p>`;
+    }
+    el.innerHTML = html;
+    document.getElementById('ov-phase-edit').onclick = () => { phaseEdit = !phaseEdit; renderPhase(); };
+    const sv = document.getElementById('ov-phase-save');
+    if (sv) sv.onclick = async () => {
+      const f = el.querySelector('.ph-form');
+      const v = (n) => f.querySelector(`[name="${n}"]`).value;
+      const name = v('pname'), start = v('pstart'), rate = v('prate') === '' ? null : Math.max(0, Math.min(2, +String(v('prate')).replace(',', '.')));
+      const r = await SD.prefs.set('phase', name && start ? { name, start, rate } : null);
+      phaseEdit = false;
+      SD.onPrefs();
+      const st = document.getElementById('ov-phase-st');
+      if (st) st.textContent = `Enregistré ${r.where}`;
+    };
+  }
+
   const overview = {
     id: 'overview', title: 'Vue d’ensemble', sub: 'Note globale de la période, ce qui la tire vers le haut ou le bas, et tes grandes tendances.',
     html() {
       const S = SD.S;
-      return `<section class="card c12"><div class="hero"><div id="ov-ring"></div><div><div class="card-h" style="margin:0"><div><h2>Note globale</h2><p class="sub" id="ov-period"></p></div></div>
-          <h3 id="ov-verdict"></h3><p id="ov-verdict-sub"></p><div class="levers" id="ov-levers"></div></div></div>
+      return `<section class="card c12"><div class="hero"><div id="ov-ring"></div><div><div class="card-h" style="margin:0"><div><h2>${hic('trophy', 'accent')}Note globale</h2><p class="sub" id="ov-period"></p></div></div>
+          <h3 id="ov-verdict"></h3><p id="ov-verdict-sub"></p><div class="levers" id="ov-levers"></div><div class="phasebox" id="ov-phase"></div></div></div>
           <div class="pillars" id="ov-pillars" style="margin-top:18px"></div></section>
-        ${card('c6', 'ov-radar', 'Profil de la période', 'Les 6 piliers, période actuelle vs période précédente (0–100)', '', { h: 'tall' })}
-        ${card('c6', 'ov-card', 'Bulletin', '', '', { h: 'tall' })}
-        ${card('c12', 'ov-rs', 'Récupération & charge', 'Barres de récupération colorées par zone (vert ≥ 67, jaune 34–66, rouge ≤ 33), charge du jour en dessous · Maj + molette pour zoomer', '', { h: 'tall' })}
+        ${card('c6', 'ov-radar', 'Profil de la période', 'Les 6 piliers, période actuelle vs période précédente (0–100)', '', { h: 'tall', icon: 'target', tone: 'accent' })}
+        ${card('c6', 'ov-card', 'Bulletin', '', '', { h: 'tall', icon: 'list', tone: 'accent' })}
+        ${card('c12', 'ov-rs', 'Récupération & charge', '', '', { h: 'tall', icon: 'recovery', tone: 'rec' })}
         <div class="kpis" id="ov-k"></div>
-        <section class="card c12"><div class="card-h"><div><h2>À retenir</h2><p class="sub">Calculé sur la période et les filtres actifs · n = taille de l’échantillon</p></div><div class="card-tools"><button type="button" class="link" id="ov-ins-more" hidden>Voir tout</button></div></div><div class="insights" id="ov-ins"></div></section>
-        ${card('c12', 'ov-cal', 'Calendrier', '', seg('calMetric', [['score', 'Note'], ['rec', 'Récup'], ['strain', 'Charge'], ['sleepH', 'Sommeil'], ['steps', 'Pas'], ['train', 'Muscu']], S.calMetric), { h: 'short' })}
-        ${card('c8', 'ov-weight', 'Poids & projection', '', '', { h: 'tall' })}
-        ${card('c4', 'ov-types', 'Activités', 'Temps enregistré par type · clic pour filtrer', '')}`;
+        <section class="card c12"><div class="card-h"><div><h2>${hic('info', 'accent')}À retenir</h2><p class="sub">Calculé sur la période et les filtres actifs · n = taille de l’échantillon</p></div><div class="card-tools"><button type="button" class="link" id="ov-ins-more" hidden>Voir tout</button></div></div><div class="insights" id="ov-ins"></div></section>
+        ${card('c12', 'ov-cal', 'Calendrier', '', seg('calMetric', [['score', 'Note'], ['rec', 'Récup'], ['strain', 'Charge'], ['sleepH', 'Sommeil'], ['steps', 'Pas'], ['train', 'Muscu']], S.calMetric), { h: 'short', icon: 'calendar', tone: 'accent' })}
+        ${card('c8', 'ov-weight', 'Poids & projection', '', '', { h: 'tall', icon: 'scale', tone: 'body' })}
+        ${card('c4', 'ov-types', 'Activités', 'Temps enregistré par type · clic pour filtrer', '', { icon: 'training', tone: 'act' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
@@ -53,16 +97,19 @@
       }).join(''));
       document.querySelectorAll('#ov-pillars [data-goto]').forEach((el) => { el.onclick = () => SD.showPage(el.dataset.goto); });
 
+      renderPhase();
+
       // ---- radar
       const ind = SD.scores.PILLARS.map((p) => ({ name: p.label, max: 100 }));
+      const narrow = (document.getElementById('ov-radar') || {}).clientWidth < 520; // libellés du radar lisibles sur téléphone
       const rv = SD.scores.PILLARS.map((p) => (isNum(cur.pillars[p.key]) ? Math.round(cur.pillars[p.key]) : 0));
       const pvv = prev ? SD.scores.PILLARS.map((p) => (isNum(prev.pillars[p.key]) ? Math.round(prev.pillars[p.key]) : 0)) : null;
       chart('ov-radar', base({
         legend: SD.ui.ecLegend(T, ['Période', 'Période précédente']),
-        tooltip: { trigger: 'item', confine: true, backgroundColor: 'rgba(17,22,29,0.97)', borderColor: T.line, textStyle: { color: T.ink }, formatter: (p) => tipBox(p.seriesName || p.name, SD.scores.PILLARS.map((q, i) => ({ color: SD.pillarColor(q.key), value: nf(p.value[i], 0), name: q.label }))) },
-        radar: { indicator: ind, radius: '66%', center: ['50%', '56%'], splitNumber: 4, axisName: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT_C, fontWeight: 700 }, splitLine: { lineStyle: { color: T.grid } }, splitArea: { areaStyle: { color: ['transparent'] } }, axisLine: { lineStyle: { color: T.grid } } },
+        tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => tipBox(p.seriesName || p.name, SD.scores.PILLARS.map((q, i) => ({ color: SD.pillarColor(q.key), value: nf(p.value[i], 0), name: q.label }))) }),
+        radar: { indicator: ind, radius: narrow ? '54%' : '66%', center: ['50%', '56%'], splitNumber: 4, axisName: { color: T.ink2, fontSize: 12.5, fontFamily: SD.FONT, fontWeight: 600 }, splitLine: { lineStyle: { color: T.grid } }, splitArea: { areaStyle: { color: ['transparent'] } }, axisLine: { lineStyle: { color: T.grid } } },
         series: [{ type: 'radar', symbolSize: 5, data: [
-          { value: rv, name: 'Période', lineStyle: { color: T.strain, width: 2 }, itemStyle: { color: T.strain }, areaStyle: { color: T.strain, opacity: 0.18 } },
+          { value: rv, name: 'Période', lineStyle: { color: T.accent, width: 2 }, itemStyle: { color: T.accent, borderColor: T.card, borderWidth: 2 }, symbolSize: 8, areaStyle: { color: T.accent, opacity: 0.14 } },
           ...(pvv ? [{ value: pvv, name: 'Période précédente', lineStyle: { color: T.muted, width: 1.5 }, itemStyle: { color: T.muted }, areaStyle: { color: T.muted, opacity: 0.06 } }] : []),
         ] }],
       }), () => ({ cols: ['Pilier', 'Période', 'Précédente'], rows: SD.scores.PILLARS.map((p, i) => [p.label, nf(cur.pillars[p.key], 0), pvv ? nf(prev.pillars[p.key], 0) : '—']) }));
@@ -86,13 +133,15 @@
         tooltip: Object.assign(base().tooltip, { trigger: 'item', formatter: (p) => tipBox(`${rows[p.value[1]]} · ${SD.bucketTitle(keys[p.value[0]], g)}`, [{ color: SD.scoreColor(p.value[2]), box: true, value: `${p.value[2]} / 100`, name: SD.scores.grade(p.value[2]) }], 'Clic pour zoomer') }),
         xAxis: xCat(keys.map((k) => SD.bucketLabel(k, g)), { axisLine: { show: false } }),
         yAxis: xCat(rows, { inverse: true, axisLine: { show: false }, axisLabel: { color: T.ink2, fontSize: 12 } }),
-        visualMap: { min: 30, max: 95, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 10, itemHeight: 140, calculable: false, text: ['95', '30'], textStyle: { color: T.muted, fontSize: 11 }, inRange: { color: [T.crit, T.warn, T.good] } },
-        series: [{ type: 'heatmap', data: cells, itemStyle: { borderColor: T.card, borderWidth: 3, borderRadius: 5 }, label: { show: keys.length <= 14, color: '#0a0d11', fontSize: 11, fontWeight: 600 } }],
+        visualMap: { min: 30, max: 95, orient: 'horizontal', left: 'center', bottom: 0, itemWidth: 10, itemHeight: 140, calculable: false, text: ['95', '30'], textStyle: { color: T.muted, fontSize: 11 }, inRange: { color: T.heat } },
+        series: [{ type: 'heatmap', data: cells, itemStyle: { borderColor: T.card, borderWidth: 3, borderRadius: 6 }, label: { show: keys.length <= 14, color: T.onHeat, fontSize: 11, fontWeight: 600 } }],
       }), () => ({ cols: ['Pilier', ...keys.map((k) => SD.bucketLabel(k, g))], rows: rows.map((r, j) => [r, ...keys.map((_, i) => { const c = cells.find((q) => q[0] === i && q[1] === j); return c ? c[2] : '—'; })]) }));
       cc && cc.on('click', (p) => SD.ui.drill(keys[p.value[0]], g));
 
       // ---- récup & charge
-      SD.ui.recStrainChart('ov-rs');
+      const rs = SD.ui.recStrainChart('ov-rs');
+      const per = rs && rs.g === 'week' ? 'moyennes par semaine (jour par jour sur 45 jours ou moins)' : rs && rs.g === 'month' ? 'moyennes par mois' : 'jour par jour';
+      setText('ov-rs-s', `Même échelle 0–100, ${per} · barres = récupération du matin (vert ≥ 67, jaune 34–66, rouge ≤ 33) · ligne = charge (légère < 50, modérée 50–69, élevée ≥ 70)${rs && rs.over ? ` · ${rs.over} jour${rs.over > 1 ? 's' : ''} en zone rouge avec une charge au-dessus du conseillé` : ''} · la charge conseillée pour ta récupération est dans l’infobulle`);
 
       // ---- KPI
       const wkAgg = (f) => SD.agg(F.days, (x) => x.d, f, 'mean', 'week').map((o) => o.v);
@@ -105,11 +154,11 @@
       const sl = avgOf(F.full, (x) => x.sleepH), pSl = avgOf(F.prevFull, (x) => x.sleepH);
       const rhr = avgOf(F.full, (x) => x.rhr), pRhr = avgOf(F.prevFull, (x) => x.rhr);
       setHTML('ov-k', [
-        kpi({ label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg`, deltaLabel: isNum(rate) ? `${sgn(rate, 2)} kg/sem` : '', good: null, spark: wkAgg((x) => x.trendW), color: T.body }),
-        kpi({ label: 'Séances de muscu', value: sess, delta: prevDelta(sess, pSess), deltaDigits: 0, good: 'up', ctx: `${nf(sess / (F.len / 7), 1)} / sem · objectif ${cfg.sessionsPerWeek}`, spark: SD.agg(F.days, (x) => x.d, (x) => (F.strengthDays.has(x.d) ? 1 : 0), 'sum', 'week').map((o) => o.v), color: T.strain }),
-        kpi({ label: 'Pas par jour', value: steps, delta: prevDelta(steps, pSteps), deltaDigits: 0, good: 'up', meter: isNum(steps) ? (steps / cfg.stepsGoal) * 100 : null, spark: wkAgg((x) => x.steps), color: T.act }),
-        kpi({ label: 'Sommeil', value: sl, fmt: fH, delta: isNum(prevDelta(sl, pSl)) ? (sl - pSl) * 60 : null, deltaFmt: (v) => `${sgn(v, 0)} min`, good: 'up', spark: wkAgg((x) => x.sleepH), color: T.sleep }),
-        kpi({ label: 'FC au repos', value: rhr, unit: 'bpm', delta: prevDelta(rhr, pRhr), good: 'down', spark: wkAgg((x) => x.rhr), color: T.rec }),
+        kpi({ icon: 'scale', label: 'Poids tendance', value: b ? b.trendW : null, unit: 'kg', digits: 1, delta: a && b && a !== b ? b.trendW - a.trendW : null, deltaFmt: (v) => `${sgn(v, 1)} kg`, deltaLabel: isNum(rate) ? `${sgn(rate, 2)} kg/sem` : '', good: null, spark: wkAgg((x) => x.trendW), color: T.body }),
+        kpi({ icon: 'dumbbell', label: 'Séances de muscu', value: sess, delta: prevDelta(sess, pSess), deltaDigits: 0, good: 'up', ctx: `${nf(sess / (F.len / 7), 1)} / sem · objectif ${cfg.sessionsPerWeek}`, spark: SD.agg(F.days, (x) => x.d, (x) => (F.strengthDays.has(x.d) ? 1 : 0), 'sum', 'week').map((o) => o.v), color: T.strain }),
+        kpi({ icon: 'steps', label: 'Pas par jour', value: steps, delta: prevDelta(steps, pSteps), deltaDigits: 0, good: 'up', meter: isNum(steps) ? (steps / cfg.stepsGoal) * 100 : null, spark: wkAgg((x) => x.steps), color: T.act }),
+        kpi({ icon: 'moon', label: 'Sommeil', value: sl, fmt: fH, delta: isNum(prevDelta(sl, pSl)) ? (sl - pSl) * 60 : null, deltaFmt: (v) => `${sgn(v, 0)} min`, good: 'up', spark: wkAgg((x) => x.sleepH), color: T.sleep }),
+        kpi({ icon: 'heart', label: 'FC au repos', value: rhr, unit: 'bpm', delta: prevDelta(rhr, pRhr), good: 'down', spark: wkAgg((x) => x.rhr), color: T.body }),
       ].join(''));
 
       // ---- insights

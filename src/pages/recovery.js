@@ -14,19 +14,19 @@
       const opts = Object.entries(METRICS).map(([k, m]) => [k, m.label]);
       const sel = (key) => `<select class="fselect" data-state="${key}" aria-label="Variable">${opts.map(([k, l]) => `<option value="${k}"${k === S[key] ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
       return `<div class="kpis" id="rc-k"></div>
-        ${card('c12', 'rc-rec', 'Score de récupération', 'HRV 45 %, FC repos 30 %, sommeil 15 %, respiration 10 %, chacun comparé à ta norme des 30 jours précédents · Maj + molette pour zoomer', '', { h: 'tall' })}
-        ${card('c6', 'rc-zones', 'Répartition des zones', '')}
-        ${card('c6', 'rc-drv', 'Ce qui pèse sur ta récupération', 'Écart moyen de chaque composante à ta norme, dans le sens favorable (σ)')}
-        ${card('c6', 'rc-hrv', 'HRV', 'Milieu de la plage min–max du jour (indicatif) · bande = plage normale')}
-        ${card('c6', 'rc-rhr', 'FC au repos', 'Valeur la plus basse du jour · bande = plage normale')}
-        ${card('c6', 'rc-resp', 'Fréquence respiratoire', 'Respirations / min · bande = plage normale')}
-        ${card('c6', 'rc-spo2', 'Saturation en oxygène', 'SpO₂ moyenne du jour')}
-        ${card('c6', 'rc-sleep', 'Sommeil vs besoin', 'Durée par nuit (jour du réveil) et besoin estimé')}
-        ${card('c6', 'rc-debt', 'Dette & régularité', 'Dette de sommeil sur 7 nuits (h) et régularité (0–100)')}
-        ${card('c6', 'rc-xy', 'Explorateur de corrélations', '', `${sel('corrX')}<span class="fsummary">→</span>${sel('corrY')}${seg('corrLag', [['0', 'même jour'], ['1', 'lendemain']], S.corrLag)}`, { h: 'tall' })}
-        ${card('c6', 'rc-mx', 'Matrice de corrélations', 'r de Pearson, même jour · clic sur une case pour l’explorer', '', { h: 'tall' })}
-        ${card('c6', 'rc-cmp', 'Jours de muscu vs jours sans', 'Lendemain = nuit et mesures du jour suivant', '', { table: false, body: '<div class="tbl-wrap" id="rc-cmp-b"></div>' })}
-        ${card('c6', 'rc-al', 'Alertes physiologiques', 'Jours où FC repos, HRV ou respiration sortent de ta norme de plus de 2 σ', '', { table: false, body: '<div class="alerts" id="rc-al-b"></div>' })}`;
+        ${card('c12', 'rc-rec', 'Score de récupération', 'HRV 45 %, FC repos 30 %, sommeil 15 %, respiration 10 %, chacun comparé à ta norme des 30 jours précédents · Maj + molette pour zoomer', '', { icon: 'battery', tone: 'rec', h: 'tall' })}
+        ${card('c6', 'rc-zones', 'Répartition des zones', '', '', { icon: 'target', tone: 'rec' })}
+        ${card('c6', 'rc-drv', 'Ce qui pèse sur ta récupération', 'Écart moyen de chaque composante à ta norme, dans le sens favorable (σ)', '', { icon: 'trend', tone: 'rec' })}
+        ${card('c6', 'rc-hrv', 'HRV', 'Milieu de la plage min–max du jour (indicatif) · bande = plage normale', '', { icon: 'hrv', tone: 'rec' })}
+        ${card('c6', 'rc-rhr', 'FC au repos', 'Valeur la plus basse du jour · bande = plage normale', '', { icon: 'heart', tone: 'body' })}
+        ${card('c6', 'rc-resp', 'Fréquence respiratoire', 'Respirations / min · bande = plage normale', '', { icon: 'wind', tone: 'act' })}
+        ${card('c6', 'rc-spo2', 'Saturation en oxygène', 'SpO₂ moyenne du jour', '', { icon: 'gauge', tone: 'hydro' })}
+        ${card('c6', 'rc-sleep', 'Sommeil vs besoin', 'Durée par nuit (jour du réveil) et besoin estimé', '', { icon: 'moon', tone: 'sleep' })}
+        ${card('c6', 'rc-debt', 'Dette & régularité', 'Dette de sommeil sur 7 nuits (h) et régularité (0–100)', '', { icon: 'bed', tone: 'sleep' })}
+        ${card('c6', 'rc-xy', 'Explorateur de corrélations', '', `${sel('corrX')}<span class="fsummary">→</span>${sel('corrY')}${seg('corrLag', [['0', 'même jour'], ['1', 'lendemain']], S.corrLag)}`, { icon: 'trend', tone: 'accent', h: 'tall' })}
+        ${card('c6', 'rc-mx', 'Matrice de corrélations', 'r de Pearson, même jour · clic sur une case pour l’explorer', '', { icon: 'overview', tone: 'accent', h: 'tall' })}
+        ${card('c6', 'rc-cmp', 'Jours de muscu vs jours sans', 'Lendemain = nuit et mesures du jour suivant', '', { icon: 'dumbbell', tone: 'strain', table: false, body: '<div class="tbl-wrap" id="rc-cmp-b"></div>' })}
+        ${card('c6', 'rc-al', 'Alertes physiologiques', 'Jours où FC repos, HRV ou respiration sortent de ta norme de plus de 2 σ', '', { icon: 'alert', tone: 'warn', table: false, body: '<div class="alerts" id="rc-al-b"></div>' })}`;
     },
     update() {
       const { M, F, S, T } = SD, cfg = M.cfg.targets;
@@ -41,11 +41,11 @@
       const resp = avgOf(F.full, (x) => x.resp), pResp = avgOf(F.prevFull, (x) => x.resp);
       const wk = (f) => SD.agg(F.days, (x) => x.d, f, 'mean', 'week').map((o) => o.v);
       setHTML('rc-k', [
-        kpi({ label: 'Récupération', value: rec, unit: '%', delta: prevDelta(rec, pRec), deltaDigits: 0, good: 'up', status: ' ' + statusPill(rec, 67, 34, ['Verte', 'Jaune', 'Rouge']), ctx: recs.length ? `${nf((recs.filter((v) => v >= 67).length / recs.length) * 100, 0)} % des jours en vert` : '', spark: wk((x) => x.rec), color: T.rec }),
-        kpi({ label: 'Performance sommeil', value: perf, unit: '%', delta: prevDelta(perf, pPerf), deltaDigits: 0, good: 'up', ctx: `${fH(sl)} en moyenne`, spark: wk((x) => x.sleepPerf), color: T.sleep }),
-        kpi({ label: 'HRV (indicative)', value: hrv, unit: 'ms', delta: prevDelta(hrv, pHrv), deltaDigits: 0, good: 'up', spark: wk((x) => x.hrv), color: T.rec }),
-        kpi({ label: 'FC au repos', value: rhr, unit: 'bpm', delta: prevDelta(rhr, pRhr), good: 'down', spark: wk((x) => x.rhr), color: T.crit }),
-        kpi({ label: 'Respiration', value: resp, unit: '/min', digits: 1, delta: prevDelta(resp, pResp), deltaDigits: 1, good: 'down', spark: wk((x) => x.resp), color: T.act }),
+        kpi({ icon: 'battery', label: 'Récupération', value: rec, unit: '%', delta: prevDelta(rec, pRec), deltaDigits: 0, good: 'up', status: ' ' + statusPill(rec, 67, 34, ['Verte', 'Jaune', 'Rouge']), ctx: recs.length ? `${nf((recs.filter((v) => v >= 67).length / recs.length) * 100, 0)} % des jours en vert` : '', spark: wk((x) => x.rec), color: T.rec }),
+        kpi({ icon: 'moon', label: 'Performance sommeil', value: perf, unit: '%', delta: prevDelta(perf, pPerf), deltaDigits: 0, good: 'up', ctx: `${fH(sl)} en moyenne`, spark: wk((x) => x.sleepPerf), color: T.sleep }),
+        kpi({ icon: 'hrv', label: 'HRV (indicative)', value: hrv, unit: 'ms', delta: prevDelta(hrv, pHrv), deltaDigits: 0, good: 'up', spark: wk((x) => x.hrv), color: T.rec }),
+        kpi({ icon: 'heart', label: 'FC au repos', value: rhr, unit: 'bpm', delta: prevDelta(rhr, pRhr), good: 'down', spark: wk((x) => x.rhr), color: T.body }),
+        kpi({ icon: 'wind', label: 'Respiration', value: resp, unit: '/min', digits: 1, delta: prevDelta(resp, pResp), deltaDigits: 1, good: 'down', spark: wk((x) => x.resp), color: T.act }),
       ].join(''));
 
       // ---- score
@@ -82,9 +82,9 @@
 
       // ---- biomarqueurs
       ts('rc-hrv', { name: 'HRV', get: (x) => x.hrv, color: T.rec, unit: 'ms', digits: 0, baseKey: 'hrv', onDay: SD.openDay });
-      ts('rc-rhr', { name: 'FC repos', get: (x) => x.rhr, color: T.crit, unit: 'bpm', digits: 0, baseKey: 'rhr', onDay: SD.openDay });
+      ts('rc-rhr', { name: 'FC repos', get: (x) => x.rhr, color: T.body, unit: 'bpm', digits: 0, baseKey: 'rhr', onDay: SD.openDay });
       ts('rc-resp', { name: 'Respiration', get: (x) => x.resp, color: T.act, unit: '/min', digits: 1, baseKey: 'resp', onDay: SD.openDay });
-      ts('rc-spo2', { name: 'SpO₂', get: (x) => x.spo2, color: T.s[0], unit: '%', digits: 1, baseKey: 'spo2', onDay: SD.openDay, markLines: [{ yAxis: 95, lineStyle: { color: T.muted, type: 'solid' }, label: { formatter: '95 %', color: T.muted, fontSize: 10 } }] });
+      ts('rc-spo2', { name: 'SpO₂', get: (x) => x.spo2, color: T.hydro, unit: '%', digits: 1, baseKey: 'spo2', onDay: SD.openDay, markLines: [{ yAxis: 95, lineStyle: { color: T.muted, type: 'solid' }, label: { formatter: '95 %', color: T.muted, fontSize: 10 } }] });
       ts('rc-sleep', { name: 'Sommeil', get: (x) => x.sleepH, color: T.sleep, unit: 'h', digits: 1, type: 'bar', baseKey: 'sleepH', fmt: fH, onDay: SD.openDay, yExtra: { min: 0 },
         extra: [line('Besoin', SD.series(F.full, (x) => x.sleepNeed, 3), T.ink2, { lineStyle: { width: 1.5, color: T.ink2 } })], fmtFor: { Besoin: fH, 'Moyenne 7 j': fH, 'Moyenne 28 j': fH },
         foot: (x) => (isNum(x.sleepPerf) ? `Performance ${nf(x.sleepPerf, 0)} % du besoin` : '') });
@@ -92,7 +92,7 @@
       chart('rc-debt', debt.length ? base({
         axisPointer: { link: [{ xAxisIndex: 'all' }] },
         grid: [{ left: 44, right: 14, top: 26, height: '36%' }, { left: 44, right: 14, top: '62%', bottom: 24 }],
-        title: [{ text: 'DETTE 7 NUITS (H)', left: 44, top: 4, textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C } }, { text: 'RÉGULARITÉ (0–100)', left: 44, top: '52%', textStyle: { color: T.muted, fontSize: 11, fontFamily: SD.FONT_C } }],
+        title: [{ text: 'Dette sur 7 nuits (h)', left: 44, top: 2, textStyle: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT, fontWeight: 600 } }, { text: 'Régularité (0–100)', left: 44, top: '51%', textStyle: { color: T.ink2, fontSize: 12, fontFamily: SD.FONT, fontWeight: 600 } }],
         tooltip: Object.assign(base().tooltip, { formatter: axisTip({ Dette: fH, 'Régularité': (v) => nf(v, 0) + ' / 100' }) }),
         xAxis: [Object.assign(SD.xTime(), { gridIndex: 0, axisLabel: { show: false } }), Object.assign(SD.xTime(), { gridIndex: 1 })],
         yAxis: [yVal({ gridIndex: 0, min: 0 }), yVal({ gridIndex: 1, min: 0, max: 100 })],
@@ -117,7 +117,7 @@
           xAxis: yVal({ scale: true, name: mx.label + (mx.unit ? ` (${mx.unit})` : ''), nameLocation: 'middle', nameGap: 26, splitLine: { show: false }, axisLine: { show: true, lineStyle: { color: T.axis } } }),
           yAxis: yVal({ scale: true, name: my.label + (my.unit ? ` (${my.unit})` : '') }),
           series: [
-            { name: 'Jours', type: 'scatter', data: xs.map((v, i) => [v, ys[i]]), symbolSize: 8, itemStyle: { color: T.strain, opacity: 0.55, borderColor: T.card, borderWidth: 1 } },
+            { name: 'Jours', type: 'scatter', data: xs.map((v, i) => [v, ys[i]]), symbolSize: 9, itemStyle: { color: T.accent, opacity: 0.6, borderColor: T.card, borderWidth: 2 } },
             { name: 'Régression', type: 'line', data: [[x0, a + b * x0], [x1, a + b * x1]], showSymbol: false, lineStyle: { color: T.ink, width: 2 }, tooltip: { show: false }, silent: true },
           ],
         });
