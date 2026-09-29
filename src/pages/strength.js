@@ -67,7 +67,7 @@
           <div class="card-tools"><button type="button" class="link" id="st-keyreset">Tout désépingler</button><button type="button" class="btn" id="st-keydone">Terminé</button></div></div>
           <div class="keytools"><input type="search" class="field" id="st-keyq" placeholder="Rechercher un exercice" aria-label="Rechercher un exercice"><label class="kchk"><input type="checkbox" id="st-keyfill"><span>Compléter avec les plus faits de la période<small>jusqu’à ${AUTO_KEYS} exercices clés</small></span></label></div>
           <div class="keylist" id="st-keylist"></div><p class="note" id="st-keypanel-n"></p></section>
-        ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { icon: 'trend', tone: 'strain', h: 'tall' })}
+        ${card('c8', 'st-prog', 'Progression', '', `<select class="fselect" id="st-ex" data-state="ex" aria-label="Exercice"></select>${seg('exMetric', EX_METRICS.map((m) => [m[0], m[1]]), S.exMetric)}`, { icon: 'trend', tone: 'strain', h: 'tall', fill: true })}
         <section class="card c4"><div class="card-h"><div><h2>${SD.ui.hic('dumbbell', 'strain')}<span id="st-card-t">Fiche exercice</span></h2><p class="sub" id="st-card-s"></p></div></div><div id="st-card-b"></div></section>
         ${card('c4', 'st-idx', 'Indice de force', 'e1RM de chaque exercice rapporté à ses 2 premières séances de la période (base 100), moyenne hebdomadaire', '', { icon: 'gauge', tone: 'strain' })}
         ${card('c4', 'st-rel', 'Force relative', 'e1RM ÷ poids tendance du jour, exercices clés', '<button type="button" class="btn sm" id="st-keyedit">Exercices clés</button>', { icon: 'scale', tone: 'body' })}
@@ -132,7 +132,8 @@
       }
       setText('st-prog-s', `${ml}${mu ? ' (' + mu + ')' : ''} par séance · ${srcLabel((S.ex || '|MF').split('|')[1])}${slopeTxt}`);
       const pc = chart('st-prog', pts.length ? base({
-        grid: { left: 8, right: 16, top: 34, bottom: 8, containLabel: true },
+        // marge haute pour les repères « PR » (épingles au-dessus des points) : ils ne recouvrent plus la légende
+        grid: { left: 8, right: 16, top: 44, bottom: 8, containLabel: true },
         legend: Object.assign(SD.ui.ecLegend(T, legend), { left: 0, right: 'auto' }),
         toolbox: SD.toolbox(), dataZoom: SD.zoom(),
         tooltip: Object.assign(base().tooltip, {
@@ -148,7 +149,7 @@
             return tipBox(fdL(e.d) + (e.pr ? ' · record' : ''), r, 'e1RM : formule d’Epley sur la meilleure série (poids d’un haltère)');
           },
         }),
-        xAxis: SD.xTime(), yAxis: yVal({ scale: true, name: mu }),
+        xAxis: SD.xTime(), yAxis: yVal({ scale: true, boundaryGap: ['6%', mk === 'e1' ? '16%' : '8%'] }),
         series,
       }) : base(SD.emptyOpt('Pas de donnée pour cet exercice sur la période')), () => ({ cols: ['Date', ...EX_METRICS.map((m) => m[1]), 'Record'], rows: rows.map((e) => [fdM(e.d), ...EX_METRICS.map((m) => nf(e[m[0]], m[3])), e.pr ? 'oui' : '']) }));
       pc && pc.on('click', (p) => p.value && SD.openDay(dstr(p.value[0])));

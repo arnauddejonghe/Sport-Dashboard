@@ -129,7 +129,7 @@
         title = `${esc(slot.day)}${done ? ' <span class="okmark">✓ faite</span>' : ''}`;
         subl = `${esc(DAY_FR[slot.day.toLowerCase()] || '')} · programme ${esc(st.prog.name)} · semaine ${slot.cycle}/${st.prog.cycles.length} · séance ${st.sessionNo}/${st.trainSlots}${sp ? ` · ${sp.sets} séries · ≈ ${fHM(sp.dur)}` : ''}`;
       }
-      const srcTxt = rd.src === 'night' ? 'nuit de cette nuit' : rd.srcDate ? `dernière nuit importée (${fdM(rd.srcDate)}) : exporte Apple Santé ce matin pour une décision à jour` : 'pas de mesure de récupération';
+      const srcTxt = rd.src === 'night' ? `mesures de la ${SD.nightOf(t)}` : rd.srcDate ? `la ${SD.nightOf(t)} n’est pas encore exportée : état lu sur la ${SD.nightOf(rd.srcDate)} · exporte Apple Santé pour une décision à jour` : 'pas de mesure de récupération';
       const goIc = (lv) => `<span class="go-ic">${SD.icon(lv === 'go' ? 'check' : lv === 'rest' ? 'moon' : lv === 'easy' ? 'stop' : 'alert')}</span>`;
       const goBox = slot && !slot.rest && !done
         ? `<div class="pl-go ${rd.level}">${goIc(rd.level)}<b>${esc(rd.title)}</b><span>${esc(rd.advice)}</span><small>${esc(rd.reasons.join(' · ') || 'pas de signal particulier')} · ${esc(srcTxt)}</small></div>`
@@ -199,13 +199,16 @@
       let bed = null;
       if (slp) { const [h, m] = wake.split(':').map(Number); const mins = h * 60 + m - Math.round(slp.need * 60) - 15; const mm = ((mins % 1440) + 1440) % 1440; bed = `${String(Math.floor(mm / 60)).padStart(2, '0')} h ${String(mm % 60).padStart(2, '0')}`; }
       const stepsT = M.cfg.targets.stepsGoal;
+      // dernière nuit mesurée (rattachée au jour du réveil), pour ne pas la confondre avec le sommeil à viser ce soir
+      let ln = null;
+      for (let k = 0; k <= 7 && !ln; k++) { const y = M.at(addD(t, -k)); if (y && isNum(y.sleepH)) ln = y; }
       const goal = (ic, tone, lab, val, sub) => `<div class="goal" style="--tc:var(--${tone})"><span class="gi">${SD.icon(ic)}</span><span>${lab}${sub ? `<small>${sub}</small>` : ''}</span><b>${val}</b></div>`;
       const tgSrc = !tg ? '' : tg.src === 'programme' ? `programme MacroFactor du ${fdM(tg.from)}` : tg.src === 'jour' ? `MacroFactor, ${fdM(tg.from)}` : `dernière cible MacroFactor connue (${fdM(tg.from)})`;
       const tgtHtml = `<div class="pl-tg"><div class="k">${hic('flag', 'rec')}Cibles du jour</div>
         ${goal('flame', 'nutri', 'Calories', tg ? `${nf(tg.kcal, 0)} kcal` : '—', tg ? `protéines ${nf(tg.prot, 0)} g · glucides ${nf(tg.carb, 0)} g · lipides ${nf(tg.fat, 0)} g<br>${esc(tgSrc)}` : 'aucune cible MacroFactor dans tes exports')}
         ${goal('droplet', 'hydro', 'Hydratation', hyd ? `≈ ${nf(hyd / 1000, 1)} L` : '—', '')}
         ${goal('steps', 'act', 'Pas', nf(stepsT, 0), xt && isNum(xt.steps) ? `${nf(xt.steps, 0)} à l’export` : '')}
-        ${goal('moon', 'sleep', 'Sommeil cette nuit', slp ? fH(slp.need) : '—', slp && bed ? `couché vers ${bed}` : '')}
+        ${goal('moon', 'sleep', 'Sommeil à viser ce soir', slp ? fH(slp.need) : '—', [slp && bed ? `besoin pour la nuit à venir · couché vers ${bed}` : '', ln ? `dernière nuit mesurée : ${fH(ln.sleepH)} (${SD.nightOf(ln.d)})${ln.d < t ? ` · la ${SD.nightOf(t)} n’est pas encore exportée` : ''}` : ''].filter(Boolean).join('<br>'))}
         ${coach && (coach.nutri || coach.steps) ? `<p class="note">Coach : ${esc([coach.nutri && 'nutrition ' + coach.nutri, coach.steps && 'pas ' + coach.steps].filter(Boolean).join(' · ').slice(0, 240))}</p>` : ''}
         <p class="note">Hydratation : 35 ml/kg (EFSA 2010) + 0,5 L par heure de séance. Coucher calculé pour un réveil à ${esc(wake)}.</p></div>`;
 
@@ -293,6 +296,13 @@
       const when = (iso) => new Date(iso).toLocaleString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
       const ago = (h) => (h < 48 ? `il y a ${Math.round(h)} h` : `il y a ${Math.round(h / 24)} jours`);
       const h = f.health && f.health.last ? age(f.health.last) : null;
+      // export récent, mais qui s'arrête avant aujourd'hui (téléphone ou montre pas encore synchronisés au moment de l'export)
+      const lastDay = f.health && f.health.last ? new Date(f.health.last).toLocaleDateString('sv-SE') : null;
+      if (isNum(h) && h <= 30 && f.health.to && lastDay && f.health.to < lastDay) {
+        const inc = [];
+        for (let i = 1; i <= 3; i++) { const y = M.at(addD(M.today, -i)); if (y && y.healthPartial) inc.push(SD.fdate(y.d, { day: 'numeric', month: 'long' })); }
+        msgs.push(`<b>Apple Santé</b> : l’export du ${esc(when(f.health.last))} s’arrête au ${esc(SD.fdate(f.health.to, { day: 'numeric', month: 'long' }))}${inc.length ? ` et cette journée y est incomplète (${esc(inc.join(', '))})` : ''} : la ${esc(SD.nightOf(lastDay))} n’y est pas. Relance l’export une fois ta montre synchronisée avec ton téléphone.`);
+      }
       if (isNum(h) && h > 30) msgs.push(`<b>Apple Santé</b> : dernier export ${esc(when(f.health.last))} (${ago(h)}). Sommeil, récupération, FC et boissons manquent ${f.health.to ? `depuis le ${esc(SD.fdate(addD(f.health.to, 1), { day: 'numeric', month: 'long' }))}` : ''}.`);
       const m = f.macrofactor && f.macrofactor.last ? age(f.macrofactor.last) : null;
       if (isNum(m) && m > 36) msgs.push(`<b>MacroFactor</b> : dernier export ${esc(when(f.macrofactor.last))} (${ago(m)}). Nutrition, poids et séances manquent ${f.macrofactor.to ? `depuis le ${esc(SD.fdate(addD(f.macrofactor.to, 1), { day: 'numeric', month: 'long' }))}` : ''}.`);
@@ -332,7 +342,10 @@
       setText('td-verdict', x.inProgress ? 'Journée en cours : la note se calcule une fois la journée terminée.' : !isNum(ds) && hit.length ? 'Note non calculée : il manque des données ce jour-là.' : dayVerdict(ds, parts));
       setHTML('td-parts', parts.map((p) => `<div class="dpart${isNum(p.v) ? '' : ' na'}"><span>${p.l}<small>${esc(p.miss || p.d)}</small></span><div class="bar2"><i style="width:${isNum(p.v) ? Math.max(2, Math.min(100, p.v)) : 0}%;background:${p.c}"></i></div><b>${isNum(p.v) ? nf(p.v, 0) : 'n. d.'}</b></div>`).join('')
         + '<p class="note" style="margin:6px 0 0">Note = moyenne à poids égaux des cibles atteintes (ce qui dépend de toi), dès 3 composantes mesurées. La récupération est un état : elle guide la séance, elle n’entre pas dans la note.</p>');
-      setHTML('td-miss', hit.length && !x.inProgress ? `<div class="alert warn" style="margin-top:14px"><b>Données manquantes ce jour-là</b>${hit.map((g) => `${esc(g.l)} : ${esc(g.why)}`).join(' · ')}.${hit.some((g) => g.k === 'health') ? ' Relance ton export Apple Santé (raccourci ou automatisation) : les jours manquants se complètent au prochain export.' : ''}</div>` : '');
+      // export Apple Santé coupé en cours de journée : la note reste calculable (pas de MacroFactor), mais on le signale
+      const info = gaps.filter((g) => g.k === 'partial' && x.healthPartial && !hit.includes(g));
+      const shown = hit.concat(info);
+      setHTML('td-miss', shown.length && !x.inProgress ? `<div class="alert warn" style="margin-top:14px"><b>${hit.length ? 'Données manquantes ce jour-là' : 'Export incomplet ce jour-là'}</b>${shown.map((g) => `${esc(g.l)} : ${esc(g.why)}`).join(' · ')}.${shown.some((g) => g.k === 'health' || g.k === 'partial') ? ' Relance ton export Apple Santé (raccourci ou automatisation) : les jours manquants ou incomplets se complètent au prochain export.' : ''}</div>` : '');
       const sess = x.w.length ? x.w.map((w) => `${esc(w.type)}${STRENGTH.has(w.type) && x.split ? ' · ' + esc(x.split) : ''}${w.min != null ? ' ' + fHM(w.min) : ''}`).join(' + ') : 'aucune séance';
       const wd = SD.fdate(d, { weekday: 'long' });
       setHTML('td-meta', `<span class="pill"><span class="dot" style="background:${x.train ? T.strain : T.muted}"></span>Séance du ${esc(wd)} : <b>${sess}</b></span>${x.phase ? `<span class="pill">Phase <b>${esc(x.phase)}</b></span>` : ''}`);
@@ -352,7 +365,7 @@
         rcard(ring(Object.assign({ value: x.rec, max: 100, color: SD.recColor(x.rec), unit: '%', label: 'Récupération' }, rsz)), 'Récupération', SD.statusPill(x.rec, 67, 34, ['Zone verte', 'Zone jaune', 'Zone rouge']),
           `HRV ${zTxt('hrv', 0)} · FC repos ${zTxt('rhr', 0)}<br>Respiration ${zTxt('resp', 1)}`),
         rcard(ring(Object.assign({ value: perf, max: 100, color: T.sleep, unit: '% du besoin', label: 'Sommeil' }, rsz)), 'Sommeil', isNum(perf) ? SD.statusPill(perf, 90, 75, ['Suffisant', 'Un peu court', 'Insuffisant']) : '',
-          `${isNum(x.sleepH) ? `<b>${fH(x.sleepH)}</b> dormies · besoin ${fH(need)}` : 'Pas de nuit enregistrée'}<br>${isNum(x.sleepDebt7) ? `Manque sur 7 nuits <b>${fH(x.sleepDebt7)}</b>` : ''}${isNum(x.sleepCons) ? ` · régularité <b>${nf(x.sleepCons, 0)}</b>` : ''}`),
+          `${esc(SD.cap1(SD.nightOf(d)))} : ${isNum(x.sleepH) ? `<b>${fH(x.sleepH)}</b> dormies · besoin ${fH(need)}` : 'pas de nuit enregistrée'}<br>${isNum(x.sleepDebt7) ? `Manque sur 7 nuits <b>${fH(x.sleepDebt7)}</b>` : ''}${isNum(x.sleepCons) ? ` · régularité <b>${nf(x.sleepCons, 0)}</b>` : ''}`),
         x.eff
           ? rcard(ring(Object.assign({ value: SD.scores.trainScore(x), max: 100, color: T.strain, text: nf(x.eff.stim, 1), unit: 'séries eff.', label: 'Effort musculation' }, rsz)), 'Effort musculation', `<span class="status ok">${esc(zoneLabel(x.eff.zone))}</span>`,
             `${isNum(x.effPlan) ? `Prévu <b>${nf(x.effPlan, 1)}</b> · réalisé <b>${Math.round((x.eff.stim / x.effPlan) * 100)} %</b><br>` : ''}${nf(x.eff.sets, 1)} séries dont <b>${nf(x.eff.hard, 1)}</b> dures · RIR moyen <b>${isNum(x.eff.rir) ? nf(x.eff.rir, 1) : '—'}</b> · ${nf(x.eff.vol, 0)} kg`)

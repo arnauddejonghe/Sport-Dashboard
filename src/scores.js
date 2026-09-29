@@ -285,6 +285,7 @@
     if (x.inProgress) out.push({ k: 'progress', l: 'Journée en cours', why: 'la note se calcule une fois la journée terminée', parts: ['sleep', 'nutri', 'steps', 'hydro'] });
     if (x.noHealth) out.push({ k: 'health', l: 'Apple Santé', why: `aucun export ne couvre ce jour (dernier export : ${fdt(f.health && f.health.last)})`, parts: ['sleep', 'hydro'] });
     else if (!isNum(x.sleepH) && !x.inProgress) out.push({ k: 'sleep', l: 'Sommeil', why: 'pas de nuit enregistrée dans Apple Santé', parts: ['sleep'] });
+    else if (x.healthPartial) out.push({ k: 'partial', l: 'Apple Santé', why: `journée incomplète dans l’export (${SD.nf(x.stepsApple, 0)} pas contre ${SD.nf(x.mfSteps, 0)} dans MacroFactor) : pas repris de MacroFactor, charge estimée d’après la durée des séances`, parts: [] });
     else if (x.partial && !x.inProgress && !x.stepsFull) out.push({ k: 'partial', l: 'Apple Santé', why: 'journée de l’export : activité incomplète', parts: ['steps'] });
     if (!x.inProgress) {
       if (!isNum(x.kcal)) out.push({ k: 'nutri', l: 'Nutrition', why: f.macrofactor && f.macrofactor.to && x.d > f.macrofactor.to ? `pas encore d’export MacroFactor pour ce jour (dernier : ${fdt(f.macrofactor.last)})` : 'rien loggé dans MacroFactor', parts: ['nutri'] });

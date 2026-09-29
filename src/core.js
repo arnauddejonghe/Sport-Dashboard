@@ -25,6 +25,11 @@
   const fdate = (d, o) => new Date(tms(d)).toLocaleDateString('fr-BE', Object.assign({ timeZone: 'UTC' }, o));
   const fdS = (d) => fdate(d, { day: 'numeric', month: 'short' });
   const fdM = (d) => fdate(d, { day: 'numeric', month: 'short', year: 'numeric' });
+  /** Nuit rattachée au jour du réveil d : « nuit du 27 au 28 sept. » (« du 30 sept. au 1 oct. » à cheval sur deux mois) */
+  const nightOf = (d) => {
+    const p = addD(d, -1), dm = (x) => fdate(x, { day: 'numeric', month: 'short' });
+    return p.slice(0, 7) === d.slice(0, 7) ? `nuit du ${+p.slice(8)} au ${dm(d)}` : `nuit du ${dm(p)} au ${dm(d)}`;
+  };
   const fdL = (d) => fdate(d, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const fdW = (d) => fdate(d, { weekday: 'short', day: 'numeric', month: 'short' });
 
@@ -355,6 +360,14 @@
       if (x.d >= today) { x.partial = true; x.inProgress = true; }
       // aucun export Apple Santé ne couvre encore ce jour (sommeil, FC, HRV, boissons absents)
       if (fresh.health.to && x.d > fresh.health.to) x.noHealth = true;
+      // journée incomplète dans l'export Apple Santé (montre pas encore synchronisée, export coupé en cours de journée) :
+      // MacroFactor, qui relit les mêmes pas d'Apple Santé plus tard, en compte nettement plus. La nuit (sommeil, HRV,
+      // FC repos) est complète ; l'activité ne l'est pas : pas repris de MacroFactor, calories actives et minutes
+      // d'exercice écartées (la charge est alors estimée d'après la durée des séances).
+      if (!x.partial && isNum(x.steps) && isNum(x.mfSteps) && x.stepsSrc !== 'MF' && x.mfSteps > x.steps * 1.3 + 500) {
+        x.healthPartial = true; x.stepsApple = x.steps; x.steps = x.mfSteps; x.stepsSrc = 'MF';
+        x.activeKcalApple = x.activeKcal; x.activeKcal = null; x.exMin = null;
+      }
       // jour d'un export Santé, terminé depuis : le total de pas de MacroFactor (synchronisé avec Apple Santé) est complet
       if (x.partial && !x.inProgress && isNum(x.mfSteps) && x.mfSteps >= (isNum(x.steps) ? x.steps : 0)) { x.steps = x.mfSteps; x.stepsFull = true; }
     }
@@ -713,8 +726,9 @@
     };
   }
   const zoom = () => [{ type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }];
+  // outils de zoom : masqués sur téléphone (ils recouvraient la légende)
   const toolbox = () => ({
-    right: 0, top: 0, itemSize: 13, itemGap: 8, iconStyle: { borderColor: T.muted }, emphasis: { iconStyle: { borderColor: T.ink } },
+    show: !(window.innerWidth < 600), right: 0, top: 0, itemSize: 13, itemGap: 8, iconStyle: { borderColor: T.muted }, emphasis: { iconStyle: { borderColor: T.ink } },
     feature: { dataZoom: { yAxisIndex: 'none', title: { zoom: 'Zoom : sélectionne une zone', back: 'Annuler le zoom' } }, restore: { title: 'Réinitialiser' } },
   });
 
@@ -934,7 +948,7 @@
   };
 
   Object.assign(SD, {
-    FONT, FONT_C, DAY, tms, dstr, addD, wdOf, weekOf, monthOf, nextMonth, nDays, WD, WDL, fdate, fdS, fdM, fdL, fdW,
+    FONT, FONT_C, DAY, tms, dstr, addD, wdOf, weekOf, monthOf, nextMonth, nDays, WD, WDL, fdate, fdS, fdM, fdL, fdW, nightOf,
     isNum, pluck, sum, mean, median, sd, pearson, linreg, pctRank, nf, sgn, fHM, fH, esc,
     readTheme, ICON, icon, cap1, zoneColor, recColor, recInk, scoreColor, pillarColor, withDefaults, TYPE_ORDER, typeKey, typeColor, STRENGTH, SPLITS, splitColor, prepare,
     PRESETS, DEFAULT_STATE, S, loadState, saveState, presetRange, setPreset, setRange, setDay, partialKcal, logged,

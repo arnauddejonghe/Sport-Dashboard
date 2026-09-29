@@ -14,7 +14,7 @@
     opts = opts || {};
     const tbl = opts.table === false ? '' : `<button type="button" class="tbl-toggle" data-tbl="${id}" aria-pressed="false">${SD.icon('table')}<span>Tableau</span></button>`;
     const body = opts.body != null ? opts.body : `<div class="chart ${opts.h || ''}" id="${id}"></div><div class="tbl-view" hidden></div>`;
-    return `<section class="card ${cls}"><div class="card-h"><div><h2>${opts.icon ? hic(opts.icon, opts.tone) : ''}<span id="${id}-t">${title}</span></h2>${sub != null ? `<p class="sub" id="${id}-s">${sub}</p>` : ''}</div>`
+    return `<section class="card ${cls}${opts.fill ? ' fill' : ''}"><div class="card-h"><div><h2>${opts.icon ? hic(opts.icon, opts.tone) : ''}<span id="${id}-t">${title}</span></h2>${sub != null ? `<p class="sub" id="${id}-s">${sub}</p>` : ''}</div>`
       + `<div class="card-tools" id="${id}-tools">${tools || ''}${tbl}</div></div>${body}${opts.note ? `<p class="note" id="${id}-n">${opts.note}</p>` : ''}</section>`;
   }
   const setText = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
@@ -213,36 +213,64 @@
    * teintées par zone, charge du jour en ligne, charge conseillée pour la récupération du jour en pointillés.
    * Une charge au-dessus de la charge conseillée un jour de récupération basse se voit d'un coup d'œil.
    */
+  /**
+   * Récupération (barres, couleur de zone) et charge (ligne) sur la même échelle 0-100.
+   * Jour par jour jusqu'à 45 jours ; au-delà, moyennes par semaine (ou par mois) pour rester lisible.
+   * La charge conseillée pour la récupération du jour est dans l'infobulle, pas sur le graphique.
+   */
   function recStrainChart(id) {
-    const { F, T } = SD;
+    const { F, T, S } = SD;
     const days = F.full.filter((x) => isNum(x.rec) || isNum(x.strain));
-    if (!days.length) { chart(id, base(emptyOpt('Pas de données de récupération ou de charge'))); return; }
-    const x0 = SD.tms(SD.S.from), x1 = SD.tms(SD.S.to) + SD.DAY - 1;
-    const tgt = (x) => (isNum(x.rec) ? Math.round(SD.scores.strainTarget(x.rec)) : null);
-    const over = days.filter((x) => isNum(x.rec) && x.rec < 34 && isNum(x.strain) && x.strain > tgt(x) + 7).length;
+    if (!days.length) { chart(id, base(emptyOpt('Pas de données de récupération ou de charge'))); return { over: 0, g: 'day' }; }
+    const g = S.gran !== 'auto' ? S.gran : F.len <= 45 ? 'day' : F.len <= 430 ? 'week' : 'month';
+    const tgt = (r) => (isNum(r) ? Math.round(SD.scores.strainTarget(r)) : null);
+    const isOver = (x) => isNum(x.rec) && x.rec < 34 && isNum(x.strain) && x.strain > tgt(x.rec) + 7;
+    const over = days.filter(isOver).length;
+    let pts;
+    if (g === 'day') pts = days.map((x) => ({ k: x.d, t: tms(x.d), rec: isNum(x.rec) ? x.rec : null, str: isNum(x.strain) ? x.strain : null, x }));
+    else {
+      const A = (f, how) => SD.agg(days, (x) => x.d, f, how, g);
+      const rec = A((x) => x.rec, 'mean'), str = A((x) => x.strain, 'mean'), red = A((x) => (isNum(x.rec) && x.rec < 34 ? 1 : null), 'count'), ov = A((x) => (isOver(x) ? 1 : null), 'count');
+      const mid = (k) => (tms(k) + tms(SD.bucketEnd(k, g))) / 2;
+      pts = rec.map((r, i) => ({ k: r.k, t: mid(r.k), rec: r.n ? Math.round(r.v) : null, str: str[i].n ? Math.round(str[i].v) : null, nRec: r.n, nStr: str[i].n, red: red[i].v, over: ov[i].v }))
+        .filter((p) => p.rec != null || p.str != null);
+    }
+    const x0 = SD.tms(S.from), x1 = SD.tms(S.to) + SD.DAY - 1;
+    const zl = (v) => (isNum(v) ? SD.scores.STRAIN_LABEL[SD.scores.strainZone(v)].toLowerCase() : '');
+    const rl = (v) => (!isNum(v) ? '' : v >= 67 ? 'zone verte' : v >= 34 ? 'zone jaune' : 'zone rouge');
     const c = chart(id, base({
       grid: { left: 8, right: 16, top: 40, bottom: 26, containLabel: true },
-      legend: Object.assign(ecLegend(T, ['Récupération', 'Charge', 'Charge conseillée']), { left: 0, right: 'auto' }),
+      legend: Object.assign(ecLegend(T, ['Récupération', 'Charge']), { left: 0, right: 'auto' }),
       tooltip: Object.assign(base().tooltip, { axisPointer: { type: 'line', lineStyle: { color: T.axis } }, formatter: (ps) => {
-        const v = ps && ps[0] && ps[0].value;
-        if (!v) return '';
-        const x = SD.M.at(dstr(v[0]));
-        const t = x ? tgt(x) : null;
-        const gap = x && isNum(x.strain) && isNum(t) ? x.strain - t : null;
-        return SD.ui.dayTip(dstr(v[0]), isNum(t) ? `Charge conseillée pour cette récupération : ${t} ± 7${isNum(gap) && Math.abs(gap) > 7 ? ` · charge ${gap > 0 ? 'au-dessus' : 'en dessous'} (${sgn(gap, 0)})` : ''}` : 'Clic pour le détail du jour');
+        const i = ps && ps[0] ? ps[0].dataIndex : -1;
+        const p = pts[i];
+        if (!p) return '';
+        const rows = [];
+        if (isNum(p.rec)) rows.push({ color: SD.recColor(p.rec), value: `${p.rec} %`, name: `récupération${g === 'day' ? '' : ' moyenne'} · ${rl(p.rec)}` });
+        if (isNum(p.str)) rows.push({ color: T.strain, value: String(p.str), name: `charge${g === 'day' ? '' : ' moyenne'} · ${zl(p.str)}` });
+        if (g === 'day') {
+          const t = tgt(p.rec), gap = isNum(t) && isNum(p.str) ? p.str - t : null;
+          if (isNum(t)) rows.push({ color: T.muted, value: `${t} ± 7`, name: `charge conseillée pour cette récupération${isNum(gap) && Math.abs(gap) > 7 ? ` · ${gap > 0 ? 'au-dessus' : 'en dessous'} (${sgn(gap, 0)})` : ''}` });
+          return tipBox(SD.fdL(p.k), rows, 'Clic pour le détail du jour');
+        }
+        if (p.red) rows.push({ color: T.crit, value: String(p.red), name: `jour${p.red > 1 ? 's' : ''} en zone rouge${p.over ? ` · dont ${p.over} avec une charge au-dessus du conseillé` : ''}` });
+        return tipBox(SD.bucketTitle(p.k, g), rows, `${p.nRec || 0} matin${(p.nRec || 0) > 1 ? 's' : ''} mesuré${(p.nRec || 0) > 1 ? 's' : ''} · ${p.nStr || 0} jour${(p.nStr || 0) > 1 ? 's' : ''} avec une charge`);
       } }),
       toolbox: SD.toolbox(),
       dataZoom: [{ type: 'inside', filterMode: 'none', zoomOnMouseWheel: 'shift', moveOnMouseMove: false }],
       xAxis: Object.assign(xTime({ min: x0, max: x1 }), { axisLabel: { color: T.muted, hideOverlap: true, formatter: (v) => fdate(dstr(v), F.len <= 120 ? { day: 'numeric', month: 'short' } : { month: 'short', year: '2-digit' }) } }),
-      yAxis: yVal({ min: 0, max: 100, interval: 25, name: '0–100' }),
+      yAxis: yVal({ min: 0, max: 100, interval: 25 }),
       series: [
-        { name: 'Récupération', type: 'bar', barMaxWidth: 12, itemStyle: { color: T.rec }, data: days.filter((x) => isNum(x.rec)).map((x) => ({ value: [tms(x.d), x.rec], itemStyle: { color: SD.recColor(x.rec), opacity: 0.55, borderRadius: [4, 4, 0, 0] } })) },
-        line('Charge conseillée', days.filter((x) => isNum(x.rec)).map((x) => [tms(x.d), tgt(x)]), T.ink2, { step: 'middle', showSymbol: false, lineStyle: { width: 1.5, type: 'dashed', color: T.ink2 }, z: 3 }),
-        line('Charge', days.filter((x) => isNum(x.strain)).map((x) => [tms(x.d), x.strain]), T.strain, { showSymbol: F.len <= 45, symbolSize: 8, lineStyle: { width: 2, color: T.strain }, itemStyle: { color: T.strain, borderColor: T.card, borderWidth: 2 }, z: 4 }),
+        { name: 'Récupération', type: 'bar', barMaxWidth: g === 'day' ? 12 : 30, itemStyle: { color: T.rec },
+          data: pts.map((p) => ({ value: [p.t, p.rec], itemStyle: { color: isNum(p.rec) ? SD.recColor(p.rec) : 'transparent', opacity: 0.6, borderRadius: [4, 4, 0, 0] } })) },
+        line('Charge', pts.map((p) => [p.t, p.str]), T.strain, { showSymbol: pts.length <= 31, symbolSize: 8, connectNulls: g !== 'day', lineStyle: { width: 2.5, color: T.strain }, itemStyle: { color: T.strain, borderColor: T.card, borderWidth: 2 }, z: 4 }),
       ],
-    }), () => ({ cols: ['Date', 'Récupération (%)', 'Charge', 'Charge conseillée'], rows: days.map((x) => [fdM(x.d), nf(x.rec, 0), nf(x.strain, 0), isNum(tgt(x)) ? String(tgt(x)) : '—']) }));
-    c && c.on('click', (p) => p.value && SD.openDay(dstr(p.value[0])));
-    return { over };
+    }), () => ({
+      cols: [g === 'day' ? 'Date' : g === 'week' ? 'Semaine du' : 'Mois', g === 'day' ? 'Récupération (%)' : 'Récupération moyenne (%)', g === 'day' ? 'Charge' : 'Charge moyenne', g === 'day' ? 'Charge conseillée' : 'Jours en zone rouge'],
+      rows: pts.map((p) => [g === 'day' ? fdM(p.k) : SD.bucketLabel(p.k, g), isNum(p.rec) ? String(p.rec) : '—', isNum(p.str) ? String(p.str) : '—', g === 'day' ? (isNum(tgt(p.rec)) ? String(tgt(p.rec)) : '—') : String(p.red || 0)]),
+    }));
+    c && c.on('click', (p) => { const q = pts[p.dataIndex]; if (q && g === 'day') SD.openDay(q.k); });
+    return { over, g };
   }
 
   SD.ui = { seg, hic, card, setText, setHTML, clampSubs, segSync, ecLegend, drill, unitWeek, avgOf, prevDelta, dayTip, weightChart, typesChart, calendar, recStrainChart };

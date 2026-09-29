@@ -140,7 +140,8 @@
 
       // ---- récup & charge
       const rs = SD.ui.recStrainChart('ov-rs');
-      setText('ov-rs-s', `Même échelle 0–100 : barres = récupération (vert ≥ 67, jaune 34–66, rouge ≤ 33), ligne = charge du jour, pointillés = charge conseillée pour ta récupération (± 7)${rs && rs.over ? ` · ${rs.over} jour${rs.over > 1 ? 's' : ''} en zone rouge avec une charge au-dessus du conseillé` : ''} · Maj + molette pour zoomer`);
+      const per = rs && rs.g === 'week' ? 'moyennes par semaine (jour par jour sur 45 jours ou moins)' : rs && rs.g === 'month' ? 'moyennes par mois' : 'jour par jour';
+      setText('ov-rs-s', `Même échelle 0–100, ${per} · barres = récupération du matin (vert ≥ 67, jaune 34–66, rouge ≤ 33) · ligne = charge (légère < 50, modérée 50–69, élevée ≥ 70)${rs && rs.over ? ` · ${rs.over} jour${rs.over > 1 ? 's' : ''} en zone rouge avec une charge au-dessus du conseillé` : ''} · la charge conseillée pour ta récupération est dans l’infobulle`);
 
       // ---- KPI
       const wkAgg = (f) => SD.agg(F.days, (x) => x.d, f, 'mean', 'week').map((o) => o.v);

@@ -162,16 +162,19 @@
     const pend = J.pending();
     const t = (iso) => new Date(iso).toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
     const read = D.sheet ? `<b>${esc(D.sheet.title)}</b>${D.sheetSyncedAt ? ` · relue le ${esc(t(D.sheetSyncedAt))}` : ''}` : D.inboxChecked ? 'aucune feuille « Journal » ou « Retours… » dans ton dossier de suivi' : 'recherche…';
-    const write = !D.inboxChecked ? '' : D.inboxId ? (pend.length ? `${pend.length} entrée${pend.length > 1 ? 's' : ''} du dashboard en route vers la feuille (script : toutes les 5 min)` : 'copie automatique active : la feuille a toutes tes entrées') : `copie vers la feuille à activer${pend.length ? ` · ${pend.length} entrée${pend.length > 1 ? 's' : ''} du dashboard pas encore dans la feuille` : ''}`;
-    const steps = D.inboxChecked && !D.inboxId;
+    const write = !D.inboxChecked ? '' : D.inboxId ? (pend.length ? `${pend.length} entrée${pend.length > 1 ? 's' : ''} du dashboard en route vers la feuille (intégrée par son script dans la minute)` : 'copie automatique active : la feuille a toutes tes entrées') : `copie vers la feuille à activer${pend.length ? ` · ${pend.length} entrée${pend.length > 1 ? 's' : ''} du dashboard pas encore dans la feuille` : ''}`;
+    // feuille lue avec des colonnes « Douleur <zone> » : le script installé est l'ancienne version
+    const src = D.sheet ? (SD.M.raw.sources || []).filter((q) => q.kind === 'notes' && String(q.fileName || '').replace(/\.csv$/i, '') === D.sheet.title).pop() : null;
+    const legacy = !!(D.inboxId && src && src.legacyPains);
+    const steps = (D.inboxChecked && !D.inboxId) || legacy;
     el.innerHTML = `<div class="sheetbar"><span class="pill"><span class="dot" style="background:${steps ? 'var(--warn)' : D.sheet ? 'var(--good)' : 'var(--muted)'}"></span>Feuille Google</span>
       <span class="sb-txt">Lecture : ${read}${write ? `<br>Écriture : ${esc(write)}` : ''}</span>
       <button type="button" class="btn sm" id="jr-sync">${SD.icon('sync')}Synchroniser</button></div>
-      ${D.sheet ? `<details class="sheetsetup"${steps ? ' open' : ''}><summary>${steps ? 'Activer la copie du dashboard vers la feuille (une fois, 2 minutes)' : 'Script de la feuille'}</summary>
+      ${D.sheet ? `<details class="sheetsetup"${steps ? ' open' : ''}><summary>${legacy ? 'Mettre à jour le script de la feuille : une seule colonne « Douleurs », intégration chaque minute (2 minutes)' : steps ? 'Activer la copie du dashboard vers la feuille (une fois, 2 minutes)' : 'Script de la feuille'}</summary>
         <ol><li>Ouvre la feuille ${D.sheet.url ? `<a href="${esc(D.sheet.url)}" target="_blank" rel="noopener">${esc(D.sheet.title)}</a>` : `« ${esc(D.sheet.title)} »`}, puis <b>Extensions → Apps Script</b>.</li>
           <li>Remplace tout le contenu de <b>Code.gs</b> par le script ci-dessous, puis <b>Enregistrer</b>.</li>
           <li>Choisis la fonction <b>setup</b> en haut, clique <b>Exécuter</b> et accepte les autorisations.</li></ol>
-        <p class="note">Le script garde tes lignes et tes colonnes, crée le dossier « Journal - entrées » à côté de la feuille et y intègre les entrées du dashboard toutes les 5 minutes. Une ligne ajoutée ou modifiée à la main dans la feuille apparaît ici à la synchro suivante.</p>
+        <p class="note">Le script garde tes lignes et tes colonnes, crée le dossier « Journal - entrées » à côté de la feuille et y intègre les entrées du dashboard chaque minute. Les douleurs tiennent dans une seule colonne « Douleurs » (« Épaule droite 3, Cheville gauche 2 ») : une nouvelle zone s’écrit simplement, sans colonne à ajouter ; les anciennes colonnes « Douleur genou », « Douleur lombaires » y sont fusionnées, valeurs comprises. Une ligne ajoutée ou modifiée à la main dans la feuille apparaît ici à la synchro suivante.</p>
         <div class="codebox"><button type="button" class="btn sm" id="jr-copy">${SD.icon('copy')}Copier le script</button><textarea class="field" id="jr-code" readonly rows="6" aria-label="Script Apps Script de la feuille">Chargement…</textarea></div></details>` : ''}`;
     const sb = document.getElementById('jr-sync');
     if (sb) sb.onclick = () => D.sync(true);
@@ -264,8 +267,12 @@
         series: moodSeries,
       }) : base(SD.emptyOpt('Pas encore d’entrée de ressenti sur la période')), () => ({ cols: ['Date', ...J.SCALES.map((s) => s[1])], rows: ent.map((e) => [fdM(e.d), ...J.SCALES.map(([k]) => (isNum(e[k]) ? e[k] : '—'))]) }));
 
-      const sites = J.painSites();
-      const painSeries = sites.map((p, i) => line(p, ent.filter((e) => e.pain && isNum(e.pain[p])).map((e) => [tms(e.d), e.pain[p]]), T.s[i % 8], { showSymbol: true, symbolSize: 6 })).filter((s) => s.data.length);
+      // zones notées sur la période ; couleur fixe par zone (ordre de première apparition), 8 zones au plus
+      const order = J.zoneOrder();
+      const seen = new Set();
+      for (const e of ent) for (const [k, v] of Object.entries((e && e.pain) || {})) if (isNum(v)) seen.add(k);
+      const sites = order.filter((z) => seen.has(z)).slice(0, 8);
+      const painSeries = sites.map((p) => line(p, ent.filter((e) => e.pain && isNum(e.pain[p])).map((e) => [tms(e.d), e.pain[p]]), T.s[order.indexOf(p) % 8], { showSymbol: true, symbolSize: 6 })).filter((s) => s.data.length);
       chart('jr-pain', painSeries.length ? base({
         grid: { left: 8, right: 14, top: 30, bottom: 8, containLabel: true },
         legend: SD.ui.ecLegend(T, painSeries.map((s) => s.name)),

@@ -255,6 +255,37 @@
     return out;
   }
 
+  // ---------------------------------------------------------------- Douleurs : « zone intensité », zones libres
+  /** « épaule droite », « Douleur à la cheville gauche : » -> « Épaule droite », « Cheville gauche » */
+  function normZone(z) {
+    const t = String(z == null ? '' : z)
+      .replace(/^\s*douleurs?\b\s*(?:(?:au|aux|du|des|de la|de l['’]|à la|à l['’]|a la|d['’])\s*)?/i, '')
+      .replace(/[\s:=(\-–—·]+$/, '').replace(/^[\s:=(\-–—·]+/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
+  }
+  /**
+   * Colonne « Douleurs » : « épaule droite 3, cheville gauche 2/10 ; lombaires: 3 » -> { 'Épaule droite': 3, 'Cheville gauche': 2, Lombaires: 3 }.
+   * Séparateurs : point-virgule, retour à la ligne, ou virgule suivie d'un nom de zone (« 4,5 » reste un nombre).
+   * Un nombre seul -> douleur « Générale ». Une zone sans intensité est ignorée (elle reste dans la note).
+   */
+  function parsePains(cell) {
+    const out = {};
+    const txt = String(cell == null ? '' : cell).trim();
+    if (!txt || txt === '-') return out;
+    for (const part of txt.split(/\s*;\s*|\n+|,(?=\s*[^\d\s])/)) {
+      const m = part.trim().match(/^(.*?)[\s:=(]*(\d{1,2}(?:[.,]\d)?)\s*(?:\/\s*10)?\s*\)?\s*$/);
+      if (!m) continue;
+      const v = parseFloat(m[2].replace(',', '.'));
+      if (!isFinite(v)) continue;
+      out[normZone(m[1]) || 'Générale'] = Math.max(0, Math.min(10, v));
+    }
+    return out;
+  }
+  /** { 'Épaule droite': 3, Lombaires: 3 } -> « Épaule droite 3, Lombaires 3 » (colonne « Douleurs » de la feuille) */
+  function formatPains(pain) {
+    return Object.entries(pain || {}).filter(([k, v]) => k && v != null && v !== '' && isFinite(+v)).map(([k, v]) => `${k} ${+v}`).join(', ');
+  }
+
   /**
    * Journal libre (feuille Google ou CSV) : « Date,Notes » ou colonnes au choix parmi
    * Date, Heure, Note/Notes/Texte, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>.
@@ -262,7 +293,8 @@
    */
   /**
    * Journal (feuille Google « Retours… » ou CSV) : une ligne par entrée, plusieurs par jour possibles.
-   * Colonnes reconnues (ordre libre) : Date, Heure, Source, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleur <zone>, Modifié.
+   * Colonnes reconnues (ordre libre) : Date, Heure, Source, Note, Tags, Humeur, Énergie, Stress, Courbatures, Douleurs, Modifié.
+   * « Douleurs » : liste libre « zone intensité » (voir parsePains) ; les anciennes colonnes « Douleur <zone> » restent lues.
    * Source « app » = entrée saisie dans le dashboard (une par jour) ; les autres (manuel, raccourci, make…) s'ajoutent.
    */
   function parseNotesCSV(text, fileName) {
@@ -273,7 +305,9 @@
     const iD = find(/^(date|jour)$/), iN = find(/^(notes?|texte|commentaires?|ressenti)$/), iTg = find(/^(tags?|[ée]tiquettes?)$/);
     const iSrc = find(/^source$/), iH = find(/^(heure|time)$/), iMod = find(/^(modifi[ée]|updated|mis [àa] jour)/);
     const SC = { mood: find(/^humeur|^mood/), energy: find(/^[ée]nergie|^energy/), stress: find(/^stress/), soreness: find(/^courbature|^soreness/) };
-    const pains = hdr.map((h, i) => [h, i]).filter(([h]) => /^douleur/.test(h)).map(([h, i]) => [h.replace(/^douleurs?\s*/, '').replace(/^./, (c) => c.toUpperCase()) || 'Générale', i]);
+    // « Douleurs » (ou « Douleur ») : liste libre ; « Douleur genou », « Douleur lombaires » : une colonne par zone (ancien format)
+    const iPainList = find(/^douleurs?$/);
+    const pains = hdr.map((h, i) => [h, i]).filter(([h]) => /^douleurs?\s+\S/.test(h)).map(([h, i]) => [normZone(h) || 'Générale', i]);
     const notes = [];
     const byDay = {};
     for (let r = 1; r < rows.length; r++) {
@@ -286,6 +320,7 @@
       const rec = { src, time: iH >= 0 ? String(row[iH] || '').slice(0, 5) : '', text: t, tags: [], tagLabels: {}, pain: {}, mod: iMod >= 0 ? String(row[iMod] || '').trim() : '' };
       for (const x of tg) if (!rec.tags.includes(x.id)) { rec.tags.push(x.id); rec.tagLabels[x.id] = x.label; }
       for (const [k, i] of Object.entries(SC)) { const v = i >= 0 ? num(row[i]) : null; if (v != null) rec[k] = Math.max(1, Math.min(5, Math.round(v))); }
+      if (iPainList >= 0) Object.assign(rec.pain, parsePains(row[iPainList]));
       for (const [site, i] of pains) { const v = num(row[i]); if (v != null) rec.pain[site] = Math.max(0, Math.min(10, v)); }
       const empty = !rec.text && !rec.tags.length && !Object.keys(rec.pain).length && !['mood', 'energy', 'stress', 'soreness'].some((k) => rec[k] != null);
       if (empty) continue;
@@ -301,7 +336,8 @@
       }
       return e;
     });
-    return { kind: 'notes', fileName, notes, jentries };
+    // feuille encore à l'ancien format (une colonne par zone de douleur) : le dashboard propose de mettre le script à jour
+    return { kind: 'notes', fileName, notes, jentries, legacyPains: pains.length > 0 };
   }
 
   // ---------------------------------------------------------------- Rapports du coach (.md)
@@ -1122,7 +1158,7 @@
         : p.kind === 'trainai' ? p.sessions.map((s) => s.d) : p.kind === 'coach' ? p.entries.map((e) => e.d)
         : p.kind === 'labs' ? p.labs.map((l) => l.d) : (p.notes || []).map((n) => n.d);
       for (const d of ds) { if (!from || d < from) from = d; if (!to || d > to) to = d; n++; }
-      return { kind: p.kind, fileName: p.fileName, exportedAt: p.exportedAt || null, from, to, n, driveId: p.driveId, modifiedTime: p.modifiedTime };
+      return Object.assign({ kind: p.kind, fileName: p.fileName, exportedAt: p.exportedAt || null, from, to, n, driveId: p.driveId, modifiedTime: p.modifiedTime }, p.legacyPains ? { legacyPains: true } : {});
     });
 
     return {
@@ -1221,7 +1257,8 @@
       generatedAt: add.generatedAt,
       lastExport: [base.lastExport, add.lastExport].filter(Boolean).sort().pop() || null,
       profile: add.profile || base.profile,
-      sources: base.sources.concat(add.sources.map((s) => Object.assign({ imported: true }, s))),
+      // un fichier relu (feuille du journal à chaque synchro, export réimporté) remplace son ancienne fiche au lieu de s'y ajouter
+      sources: base.sources.filter((s) => !add.sources.some((a) => a.kind === s.kind && a.fileName === s.fileName)).concat(add.sources.map((s) => Object.assign({ imported: true }, s))),
       coverage: { health: base.coverage.health, from: days[0].d, to: days[days.length - 1].d },
       days,
       workouts: workouts.sort((a, b) => a.d.localeCompare(b.d)),
@@ -1243,7 +1280,7 @@
 
   return {
     parseCSV, parseHealthCSV, parseNotesCSV, parseCoachMD, parseLabsCSV, parseMacroFactor, parseTrainAI, parseFile, mergeParsed, overlayDataset,
-    coachFileInfo, cleanSensitive, maskSensitive, setPrivacyTerms, tagsFrom, slugTag, isPairDB, cleanExName, DATA_VERSION,
+    coachFileInfo, cleanSensitive, maskSensitive, setPrivacyTerms, tagsFrom, slugTag, parsePains, formatPains, normZone, isPairDB, cleanExName, DATA_VERSION,
     isMacroFactor, isTrainAI, exportDateFromName,
     _internal: { num, range, duration, toISODate, epley },
   };

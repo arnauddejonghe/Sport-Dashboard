@@ -4,7 +4,8 @@
  *
  * Ce que fait le script :
  *  - setup()  : met la feuille au format du journal (colonnes ci-dessous) en conservant les lignes existantes,
- *               crée le dossier « Journal - entrées » à côté de la feuille et programme ingest() toutes les 5 minutes ;
+ *               fusionne les anciennes colonnes « Douleur <zone> » dans « Douleurs », crée le dossier
+ *               « Journal - entrées » à côté de la feuille et programme ingest() chaque minute ;
  *  - ingest() : intègre les fichiers CSV déposés par le dashboard dans « Journal - entrées »
  *               (une ligne « app » par jour : remplacée si elle existe déjà), puis met ces fichiers à la corbeille ;
  *  - onEdit() : quand tu modifies une ligne à la main, met à jour « Modifié » (la version la plus récente l'emporte
@@ -13,9 +14,12 @@
  *
  * Le dashboard ne peut pas écrire directement dans une feuille (le connecteur Google Drive ne modifie que les
  * métadonnées) : il dépose un petit fichier, ce script fait le reste.
+ *
+ * Douleurs : une seule colonne, au format libre « zone intensité » séparés par des virgules, par exemple
+ * « Épaule droite 3, Cheville gauche 2 ». Une nouvelle zone s'écrit simplement : aucune colonne à ajouter.
  */
 
-var HEADERS = ['Date', 'Heure', 'Source', 'Note', 'Tags', 'Humeur', 'Énergie', 'Stress', 'Courbatures', 'Douleur genou', 'Douleur lombaires', 'Modifié'];
+var HEADERS = ['Date', 'Heure', 'Source', 'Note', 'Tags', 'Humeur', 'Énergie', 'Stress', 'Courbatures', 'Douleurs', 'Modifié'];
 var INBOX = 'Journal - entrées';
 var TZ = 'Europe/Brussels';
 
@@ -59,6 +63,10 @@ function setup() {
     if (rows.length) sh.getRange(2, 1, rows.length, head.length).setValues(rows);
   }
   sh.setFrozenRows(1);
+  // anciennes colonnes « Douleur genou », « Douleur lombaires »… -> colonne unique « Douleurs », placée avant « Modifié »
+  migratePains_(sh);
+  var cc = columns_(sh, ['Douleurs']);
+  if (cc['modifie'] && cc['douleurs'] > cc['modifie']) sh.moveColumns(sh.getRange(1, cc['douleurs']), cc['modifie']);
   // Date, Heure et Modifié en texte : pas de conversion automatique de format
   var c = columns_(sh, HEADERS);
   ['date', 'heure', 'modifie'].forEach(function (k) { sh.getRange(1, c[k], sh.getMaxRows(), 1).setNumberFormat('@'); });
@@ -66,10 +74,49 @@ function setup() {
   var file = DriveApp.getFileById(SpreadsheetApp.getActive().getId());
   var parent = file.getParents().hasNext() ? file.getParents().next() : DriveApp.getRootFolder();
   if (!parent.getFoldersByName(INBOX).hasNext()) parent.createFolder(INBOX);
-  // déclencheur toutes les 5 minutes
+  // déclencheur chaque minute (les entrées du dashboard apparaissent dans la feuille dans la minute)
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'ingest') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('ingest').timeBased().everyMinutes(5).create();
+  ScriptApp.newTrigger('ingest').timeBased().everyMinutes(1).create();
   ingest();
+}
+
+/** « Douleur genou » -> « Genou » */
+function zoneLabel_(h) {
+  var t = String(h || '').replace(/^\s*douleurs?\s*/i, '').trim().toLowerCase();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : 'Générale';
+}
+
+/** Fusionne les colonnes « Douleur <zone> » dans « Douleurs » (« Genou 5, Lombaires 3 »), puis les supprime */
+function migratePains_(sh) {
+  var last = sh.getLastColumn();
+  if (last < 1) return;
+  var head = sh.getRange(1, 1, 1, last).getDisplayValues()[0];
+  var old = [];
+  head.forEach(function (h, i) { if (/^douleurs?\s+\S/.test(norm_(h))) old.push({ i: i + 1, zone: zoneLabel_(h) }); });
+  if (!old.length) return;
+  var c = columns_(sh, ['Douleurs']);
+  var n = sh.getLastRow() - 1;
+  if (n > 0) {
+    var target = sh.getRange(2, c['douleurs'], n, 1);
+    var cur = target.getDisplayValues();
+    var cols = old.map(function (o) { return sh.getRange(2, o.i, n, 1).getDisplayValues(); });
+    target.setValues(cur.map(function (row, r) {
+      var parts = String(row[0] || '').trim() ? [String(row[0]).trim()] : [];
+      old.forEach(function (o, j) { var v = String(cols[j][r][0] || '').trim(); if (v !== '' && v !== '-') parts.push(o.zone + ' ' + v); });
+      return [parts.join(', ')];
+    }));
+  }
+  old.sort(function (a, b) { return b.i - a.i; }).forEach(function (o) { sh.deleteColumn(o.i); });
+}
+
+/** Entrée reçue avec des colonnes « Douleur <zone> » (ancienne version du dashboard) -> « Douleurs » */
+function pains_(o) {
+  var legacy = Object.keys(o).filter(function (k) { return /^douleurs?\s+\S/.test(norm_(k)); });
+  if (!legacy.length) return o;
+  var parts = String(o['Douleurs'] || '').trim() ? [String(o['Douleurs']).trim()] : [];
+  legacy.forEach(function (k) { var v = String(o[k] == null ? '' : o[k]).trim(); if (v !== '' && v !== '-') parts.push(zoneLabel_(k) + ' ' + v); delete o[k]; });
+  o['Douleurs'] = parts.join(', ');
+  return o;
 }
 
 /** Ajoute ou remplace une ligne. clé « app » : une seule ligne app par date */
@@ -112,7 +159,7 @@ function ingest() {
         var o = {};
         head.forEach(function (h, i) { o[h] = r[i]; });
         if (!o['Modifié']) o['Modifié'] = now_();
-        upsert_(sh, o);
+        upsert_(sh, pains_(o));
       });
       f.setTrashed(true);
     });
@@ -131,7 +178,8 @@ function onEdit(e) {
 }
 
 /**
- * Raccourci Apple / Make : POST JSON { key, note, tags, humeur, energie, stress, courbatures, genou, lombaires, source, date, heure }.
+ * Raccourci Apple / Make : POST JSON { key, note, tags, humeur, energie, stress, courbatures, douleurs, source, date, heure },
+ * douleurs = « Épaule droite 3, Cheville gauche 2 » ou { "Épaule droite": 3 } (genou et lombaires restent acceptés).
  * Déploiement : Déployer → Nouveau déploiement → Application web (exécuter en tant que moi).
  * La clé se règle dans Paramètres du projet → Propriétés du script → KEY.
  */
@@ -140,13 +188,17 @@ function doPost(e) {
   var key = PropertiesService.getScriptProperties().getProperty('KEY');
   if (key && d.key !== key) return ContentService.createTextOutput('refusé');
   var now = new Date();
+  var douleurs = d.douleurs || '';
+  if (douleurs && typeof douleurs === 'object') douleurs = Object.keys(douleurs).map(function (k) { return k + ' ' + douleurs[k]; }).join(', ');
+  if (d.genou) douleurs = (douleurs ? douleurs + ', ' : '') + 'Genou ' + d.genou;
+  if (d.lombaires) douleurs = (douleurs ? douleurs + ', ' : '') + 'Lombaires ' + d.lombaires;
   upsert_(sheet_(), {
     'Date': d.date || Utilities.formatDate(now, TZ, 'yyyy-MM-dd'),
     'Heure': d.heure || Utilities.formatDate(now, TZ, 'HH:mm'),
     'Source': d.source || 'raccourci',
     'Note': d.note || '', 'Tags': d.tags || '',
     'Humeur': d.humeur || '', 'Énergie': d.energie || '', 'Stress': d.stress || '', 'Courbatures': d.courbatures || '',
-    'Douleur genou': d.genou || '', 'Douleur lombaires': d.lombaires || '',
+    'Douleurs': douleurs,
     'Modifié': now_(),
   });
   return ContentService.createTextOutput('ok');

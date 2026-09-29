@@ -174,8 +174,16 @@
       const c = SD.journal && SD.journal.combined ? SD.journal.combined(d) : null;
       if (c) for (const [k, v] of Object.entries(c.pain || {})) if (isNum(v) && !(k in pains)) pains[k] = v;
     }
-    const legs = slot && !slot.rest && /leg|lower|jambe|bas/i.test(slot.day);
-    const painHits = Object.entries(pains).filter(([k, v]) => v >= 4 && (/lomb|dos/i.test(k) || (/genou|knee|hanche/i.test(k) && legs)));
+    // zones libres : rattachées au bas du corps, au haut du corps ou au dos d'après leur nom ; une zone inconnue compte
+    // dès qu'une séance est prévue, le dos toujours
+    const train = !!(slot && !slot.rest);
+    const legs = train && /leg|lower|jambe|bas|full/i.test(slot.day);
+    const upper = train && /upper|push|pull|haut|full|bras|torse/i.test(slot.day);
+    const BACK = /lomb|dos|rein|sacr|coccyx/i;
+    const LOWER = /genou|knee|hanche|cheville|pied|mollet|ischio|quadri|cuisse|adduct|fess|aine|achille/i;
+    const UPPER = /[ée]paule|coude|poignet|avant-bras|bras|biceps|triceps|pec|nuque|\bcou\b|trap[èe]ze|omoplate|main|doigt/i;
+    const relevant = (k) => (BACK.test(k) ? true : LOWER.test(k) ? legs : UPPER.test(k) ? upper : train);
+    const painHits = Object.entries(pains).filter(([k, v]) => v >= 4 && relevant(k));
     if (painHits.length) { lvl = Math.max(lvl, 1); reasons.push(painHits.map(([k, v]) => `${k.toLowerCase()} ${v}/10`).join(', ')); }
     const LV = [
       ['go', 'Feu vert', 'Séance complète : vise le haut des fourchettes au RIR prévu.'],

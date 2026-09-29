@@ -60,7 +60,7 @@
      * Copie d'une entrée du journal vers la feuille Google : le connecteur ne modifie pas le contenu d'une feuille,
      * on dépose donc un petit CSV dans « Journal - entrées » ; le script de la feuille l'intègre (une ligne « app » par jour).
      */
-    async pushJournal(d, e, painSites) {
+    async pushJournal(d, e) {
       if (!this.mcp || ['hidden', 'consent'].includes(this.state)) return { ok: false, msg: 'Copie vers la feuille Google : connecte Google Drive (page Données).' };
       try {
         if (!this.inboxId) {
@@ -72,11 +72,11 @@
           this.inboxId = ib.id;
         }
         const q = (v) => { const t = v == null ? '' : String(v); return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-        const sites = painSites || [];
-        const head = ['Date', 'Heure', 'Source', 'Note', 'Tags', 'Humeur', 'Énergie', 'Stress', 'Courbatures', ...sites.map((p) => 'Douleur ' + p.toLowerCase()), 'Modifié'];
+        // une seule colonne « Douleurs » (« Épaule droite 3, Cheville gauche 2 ») : les zones changent sans toucher à la feuille
+        const head = ['Date', 'Heure', 'Source', 'Note', 'Tags', 'Humeur', 'Énergie', 'Stress', 'Courbatures', 'Douleurs', 'Modifié'];
         const now = new Date();
         const hhmm = now.toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' });
-        const row = [d, hhmm, 'app', e.text || '', (e.tagNames || []).join(', '), e.mood, e.energy, e.stress, e.soreness, ...sites.map((p) => (e.pain || {})[p]), e.updatedAt || now.toISOString()];
+        const row = [d, hhmm, 'app', e.text || '', (e.tagNames || []).join(', '), e.mood, e.energy, e.stress, e.soreness, window.SDParsers.formatPains(e.pain), e.updatedAt || now.toISOString()];
         const csv = head.map(q).join(',') + '\n' + row.map(q).join(',') + '\n';
         const stamp = now.toISOString().replace(/[-:]/g, '').slice(0, 15);
         await this.call('create_file', { title: `journal_app_${d}_${stamp}.csv`, parentId: this.inboxId, textContent: csv, contentMimeType: 'text/csv', disableConversionToGoogleType: true });

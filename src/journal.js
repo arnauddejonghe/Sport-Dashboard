@@ -28,15 +28,45 @@
     /** Tous les tags connus (défaut, config, créés, vus dans les notes) : [id, libellé] */
     allTags() {
       const out = new Map(DEFAULT_TAGS);
-      for (const t of (SD.M && SD.M.cfg.journalTags) || []) { const [id, l] = Array.isArray(t) ? t : [slug(t), String(t)]; if (!out.has(id)) out.set(id, l); }
-      for (const [id, l] of this.meta.custom || []) if (!out.has(id)) out.set(id, l);
-      for (const e of this.sheet().values()) for (const id of e.tags || []) if (!out.has(id)) out.set(id, (e.tagLabels || {})[id] || id);
-      for (const e of this.entries.values()) for (const id of e.tags || []) if (!out.has(id)) out.set(id, (e.tagLabels || {})[id] || id);
+      // un tag relu dans la feuille porte son libellé (« Nuit interrompue ») : il rejoint le tag existant de même libellé
+      const lab = (l) => slug(l);
+      const add = (id, l) => { if (out.has(id)) return; const k = lab(l); for (const v of out.values()) if (lab(v) === k) return; out.set(id, l); };
+      for (const t of (SD.M && SD.M.cfg.journalTags) || []) { const [id, l] = Array.isArray(t) ? t : [slug(t), String(t)]; add(id, l); }
+      for (const [id, l] of this.meta.custom || []) add(id, l);
+      for (const e of this.sheet().values()) for (const id of e.tags || []) add(id, (e.tagLabels || {})[id] || id);
+      for (const e of this.entries.values()) for (const id of e.tags || []) add(id, (e.tagLabels || {})[id] || id);
       return [...out.entries()];
     },
     tags() { const hid = new Set(this.meta.hidden || []); return this.allTags().filter(([id]) => !hid.has(id)); },
     labels() { return Object.fromEntries(this.allTags()); },
-    painSites() { return (SD.M && SD.M.cfg.painSites) || ['Genou', 'Lombaires']; },
+    /**
+     * Zones de douleur connues, de la plus récemment notée à la plus ancienne, puis celles de la configuration :
+     * les zones sont libres (« Épaule droite », « Cheville gauche »…), rien à déclarer à l'avance.
+     */
+    zones() {
+      const last = new Map();
+      const see = (d, pain) => { for (const [k, v] of Object.entries(pain || {})) if (k && isNum(v)) { const cur = last.get(k); if (cur == null || d > cur) last.set(k, d); } };
+      for (const [d, e] of this.entries) see(d, e && e.pain);
+      for (const e of this.sheet().values()) for (const r of e.rows || [e]) see(e.d, r.pain);
+      const out = [...last.entries()].sort((a, b) => b[1].localeCompare(a[1])).map(([k]) => k);
+      for (const z of (SD.M && SD.M.cfg.painSites) || []) if (!out.some((o) => o.toLowerCase() === String(z).toLowerCase())) out.push(String(z));
+      return out;
+    },
+    /** Ordre stable des zones (première apparition dans l'historique) : une zone garde sa couleur quelle que soit la période */
+    zoneOrder() {
+      const first = new Map();
+      const see = (d, pain) => { for (const [k, v] of Object.entries(pain || {})) if (k && isNum(v)) { const cur = first.get(k); if (cur == null || d < cur) first.set(k, d); } };
+      for (const [d, e] of this.entries) see(d, e && e.pain);
+      for (const e of this.sheet().values()) for (const r of e.rows || [e]) see(e.d, r.pain);
+      return [...first.entries()].sort((a, b) => a[1].localeCompare(b[1]) || a[0].localeCompare(b[0])).map(([k]) => k);
+    },
+    /** Nom de zone saisi -> nom canonique (zone déjà connue, casse et accents ignorés) */
+    canonZone(z) {
+      const n = window.SDParsers && SDParsers.normZone ? SDParsers.normZone(z) : String(z || '').trim();
+      if (!n) return '';
+      const key = (t) => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      return this.zones().find((k) => key(k) === key(n)) || n;
+    },
 
     /** Ligne « app » de la feuille pour un jour, et lignes des autres sources */
     sheetApp(d) { const sh = this.sheet().get(d); return sh && sh.rows ? sh.rows.find((r) => r.src === 'app') || null : null; },
@@ -134,9 +164,9 @@
     mirror(d, body) {
       if (!SD.drive || !SD.drive.pushJournal) return Promise.resolve({ ok: false });
       const labels = this.labels();
-      return SD.drive.pushJournal(d, Object.assign({}, body, { tagNames: (body.tags || []).map((t) => labels[t] || (body.tagLabels || {})[t] || t) }), this.painSites())
+      return SD.drive.pushJournal(d, Object.assign({}, body, { tagNames: (body.tags || []).map((t) => labels[t] || (body.tagLabels || {})[t] || t) }))
         .then((r) => {
-          this.sheetStatus = r.ok ? 'Copie envoyée à la feuille Google : intégrée par son script sous 5 minutes.' : r.msg;
+          this.sheetStatus = r.ok ? 'Copie envoyée à la feuille Google : son script l’intègre dans la minute (toutes les 5 minutes avec l’ancienne version du script).' : r.msg;
           if (r.ok) {
             const cur = this.entries.get(d);
             if (cur && cur.updatedAt === body.updatedAt) {
@@ -186,7 +216,15 @@
       const co = M.coach.get(d);
       if (co) others.push(`<p><span class="src">Coach</span>${co.scores && isNum(co.scores.global) ? `<b>Global ${Math.round(co.scores.global)}</b> · ` : ''}${esc(co.verdict || '')}</p>`);
       if (x && isNum(x.mood)) others.push(`<p><span class="src">Apple</span>Humeur enregistrée : ${esc(moodLabel(x.mood))}</p>`);
-      const hasFeel = SCALES.some(([k]) => isNum(e[k])) || Object.values(pain).some((v) => isNum(v) && v > 0);
+      const hasFeel = SCALES.some(([k]) => isNum(e[k]));
+      // douleurs : une ligne par zone notée, zones déjà utilisées en un clic, nouvelle zone au clavier
+      const zones = this.zones();
+      const painRow = (z, v) => `<div class="jp-row" data-zone="${esc(z)}"><span>${esc(z)}</span><select class="fselect" aria-label="Intensité ${esc(z)} sur 10"><option value="">—</option>${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((n) => `<option value="${n}"${v === n ? ' selected' : ''}>${n} / 10</option>`).join('')}</select><button type="button" class="jp-del" aria-label="Retirer ${esc(z)}">×</button></div>`;
+      const painHtml = `<div class="jpain"><div class="jp-h">Douleurs <small>zone et intensité sur 10 · nouvelle zone (ex. épaule droite) : tape son nom, rien à configurer</small></div>
+          <div class="jp-rows">${Object.entries(pain).filter(([, v]) => isNum(v)).map(([z, v]) => painRow(z, v)).join('')}</div>
+          <div class="chips jp-sugg">${zones.filter((z) => !(z in pain)).slice(0, 6).map((z) => `<button type="button" class="tagchip" data-padd="${esc(z)}">+ ${esc(z)}</button>`).join('')}
+            <input type="text" class="tag-add jp-new" maxlength="40" placeholder="+ autre zone" aria-label="Nouvelle zone de douleur" list="jp-zones-${d}"></div>
+          <datalist id="jp-zones-${d}">${zones.map((z) => `<option value="${esc(z)}"></option>`).join('')}</datalist></div>`;
       const visible = this.tags();
       const hidden = this.allTags().filter(([id]) => (this.meta.hidden || []).includes(id));
       el.innerHTML = `<form class="jform" data-day="${d}" onsubmit="return false">
@@ -195,9 +233,9 @@
           <input type="text" class="tag-add" maxlength="30" placeholder="+ nouveau tag" aria-label="Nouveau tag">
           <button type="button" class="link" data-tagedit>${this.editTags ? 'Terminé' : 'Gérer les tags'}</button></div>
         ${this.editTags && hidden.length ? `<p class="note">Masqués : ${hidden.map(([id, lab]) => `<button type="button" class="link" data-unhide="${esc(id)}">${esc(lab)}</button>`).join(' · ')}</p>` : ''}
+        ${painHtml}
         <details class="jmore"${hasFeel ? ' open' : ''}><summary>Ressenti (facultatif)</summary>
           ${SCALES.map(([k, lab]) => `<div class="jrow2"><span>${lab}</span><div class="seg sm" data-scale="${k}">${[1, 2, 3, 4, 5].map((v) => `<button type="button" data-v="${v}" aria-pressed="${e[k] === v}">${v}</button>`).join('')}</div></div>`).join('')}
-          ${this.painSites().map((p) => `<div class="jrow2"><span>Douleur ${esc(p.toLowerCase())}</span><select class="fselect" name="pain:${esc(p)}"><option value="">—</option>${[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((v) => `<option value="${v}"${pain[p] === v ? ' selected' : ''}>${v} / 10</option>`).join('')}</select></div>`).join('')}
         </details>
         <div class="jactions"><button type="button" class="btn primary" data-jsave>Enregistrer</button>
           <span class="fsummary" data-jstatus>${e.updatedAt ? `Enregistré le ${esc(new Date(e.updatedAt).toLocaleString('fr-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : this.mode === 'db' ? 'Synchronisé entre tes appareils' : 'Enregistré dans ce navigateur'} · Ctrl + Entrée pour enregistrer</span></div>
@@ -212,7 +250,7 @@
       const collect = () => {
         const body = { tags: [...form.querySelectorAll('[data-tag][aria-pressed="true"]')].map((b) => b.dataset.tag), text: form.text.value.trim(), pain: {} };
         for (const [k] of SCALES) { const on = form.querySelector(`[data-scale="${k}"] [aria-pressed="true"]`); if (on) body[k] = +on.dataset.v; }
-        for (const p of this.painSites()) { const s = form.querySelector(`[name="pain:${CSS.escape(p)}"]`); if (s && s.value !== '') body.pain[p] = +s.value; }
+        for (const r of form.querySelectorAll('.jp-row')) { const v = r.querySelector('select').value; if (v !== '') body.pain[r.dataset.zone] = +v; }
         return body;
       };
       const doSave = async () => {
@@ -233,8 +271,33 @@
         if (tb) { tb.setAttribute('aria-pressed', String(tb.getAttribute('aria-pressed') !== 'true')); return; }
         const sc = ev.target.closest('[data-scale] button');
         if (sc) { const on = sc.getAttribute('aria-pressed') === 'true'; sc.parentElement.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', 'false')); sc.setAttribute('aria-pressed', String(!on)); return; }
+        const pa = ev.target.closest('[data-padd]');
+        if (pa) { addZone(pa.dataset.padd); return; }
+        const pd = ev.target.closest('.jp-del');
+        if (pd) { pd.closest('.jp-row').remove(); return; }
         if (ev.target.closest('[data-jsave]')) doSave();
       });
+      // ajoute une zone (ou met le focus sur la zone déjà présente) sans perdre le texte en cours de saisie
+      const addZone = (raw) => {
+        const z = this.canonZone(raw);
+        if (!z) return;
+        const rows = form.querySelector('.jp-rows');
+        let row = [...rows.querySelectorAll('.jp-row')].find((r) => r.dataset.zone.toLowerCase() === z.toLowerCase());
+        if (!row) {
+          rows.insertAdjacentHTML('beforeend', painRow(z, null));
+          row = rows.lastElementChild;
+          const chip = [...form.querySelectorAll('[data-padd]')].find((b) => b.dataset.padd.toLowerCase() === z.toLowerCase());
+          if (chip) chip.remove();
+        }
+        row.querySelector('select').focus();
+      };
+      const pnew = form.querySelector('.jp-new');
+      pnew.addEventListener('keydown', (ev) => {
+        if (ev.key !== 'Enter') return;
+        ev.preventDefault();
+        if (pnew.value.trim()) { addZone(pnew.value); pnew.value = ''; }
+      });
+      pnew.addEventListener('change', () => { if (pnew.value.trim() && this.zones().some((z) => z.toLowerCase() === pnew.value.trim().toLowerCase())) { addZone(pnew.value); pnew.value = ''; } });
       const add = form.querySelector('.tag-add');
       add.addEventListener('keydown', (ev) => {
         if (ev.key !== 'Enter' || !add.value.trim()) return;
